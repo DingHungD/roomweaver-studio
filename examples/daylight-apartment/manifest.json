@@ -1,0 +1,39 @@
+{
+  "name": "Daylight apartment",
+  "kind": "synthetic",
+  "units": "metres",
+  "native": "daylight-apartment.blend",
+  "preview": "daylight-apartment.glb",
+  "exterior": "Illustrative city sky and original neighboring facade; not a site photograph",
+  "suggested_viewpoints": [
+    {
+      "name": "Living",
+      "eye": [
+        5.65,
+        0.9,
+        1.48
+      ],
+      "yaw": 138.65,
+      "pitch": 0,
+      "lens": 32
+    },
+    {
+      "name": "Bedroom",
+      "eye": [
+        5.5,
+        1.4,
+        1.4
+      ],
+      "yaw": 90,
+      "pitch": 0,
+      "lens": 32
+    }
+  ],
+  "sha256": {
+    "daylight-apartment.blend": "33da2c015f516507c9c2159d0e7a3039d436ce608e0e3cc94f93a272f89cf665",
+    "daylight-apartment.glb": "378c32584941e97bcd8905c974faa7d13d79bab7bf5231eea3528d98b995532b",
+    "preview-living.png": "76259e886855b8eeef03a12baa5942e46cf6fa87a82d31462c4ffcbd02237d38",
+    "preview-bedroom.png": "69205b84b5be8edf8d8681a80afc355a91ceced70772363495f78c46b1da4ece",
+    "layout.png": "7d603bbce555c8266f2c941012cfd5b0339d48d0e2464083a18f3bb7bfde0025"
+  }
+}

@@ -1,0 +1,121 @@
+{
+  "license_policy": "Only free CC0 assets; checked 2026-10-10",
+  "assets": [
+    {
+      "key": "chair",
+      "name": "Wooden Dining Chair",
+      "asset_id": "53195601-f0c2-4c34-871a-34aa32472e7e",
+      "version_id": "806b363f-8a31-4654-8006-4f3dc11d4e18",
+      "author": "Brian Pickens",
+      "license": "CC0-1.0",
+      "is_free": true,
+      "source": "https://www.blendkit.com/asset-gallery-detail/53195601-f0c2-4c34-871a-34aa32472e7e/",
+      "file": "chair.blend",
+      "sha256": "c5757f589dd8f6f01d1c28d502fbce619d886f5f93d6f036c9177614120e6355",
+      "bytes": 1138331
+    },
+    {
+      "key": "coffee-table",
+      "name": "Modern Coffee Table",
+      "asset_id": "b6bdc26a-36bb-4be3-8f64-312836aae79b",
+      "version_id": "d97fa891-9376-4700-8983-016b8a8abc99",
+      "author": "FortaMesh Moezi",
+      "license": "CC0-1.0",
+      "is_free": true,
+      "source": "https://www.blendkit.com/asset-gallery-detail/b6bdc26a-36bb-4be3-8f64-312836aae79b/",
+      "file": "coffee-table.blend",
+      "sha256": "36b2377e0bb5940d05b11bb0414438b0937716eae390e6626197e590f37b0943",
+      "bytes": 616369
+    },
+    {
+      "key": "bed",
+      "name": "Master bed",
+      "asset_id": "3a845132-df64-4f02-8da6-44229fe774e4",
+      "version_id": "d493c69a-5c64-40bf-a7a6-a4e745bfbea8",
+      "author": "Rohma Ansari",
+      "license": "CC0-1.0",
+      "is_free": true,
+      "source": "https://www.blendkit.com/asset-gallery-detail/3a845132-df64-4f02-8da6-44229fe774e4/",
+      "file": "bed.blend",
+      "sha256": "7acc74f3d1f1892d81504f6a4fa9d5e922422985b82d2e84e9e080fe0b7b045c",
+      "bytes": 484055
+    },
+    {
+      "key": "oak-floor",
+      "name": "Sonoma oak imitation",
+      "asset_id": "3f1adab9-e8eb-455c-a509-f156fa967470",
+      "version_id": "5d2c9529-c0ab-412e-aee5-20ffbf7f08a7",
+      "author": "Christian E.",
+      "license": "CC0-1.0",
+      "is_free": true,
+      "source": "https://www.blendkit.com/asset-gallery-detail/3f1adab9-e8eb-455c-a509-f156fa967470/",
+      "file": "oak-floor.blend",
+      "sha256": "db1e1eaa52c4ac39c6ad9d0e5e53efb7ec6a87efde5e3de202211a0e3f4a95df",
+      "bytes": 1023404
+    },
+    {
+      "key": "oak-furniture",
+      "name": "Oak Wood Natural Clean",
+      "asset_id": "d484a9ce-2084-4884-a6d0-41b11a8e29c2",
+      "version_id": "1111327e-e56d-49ef-837d-525f1211b70d",
+      "author": "Tomasz Bartkowiak-Ketzler",
+      "license": "CC0-1.0",
+      "is_free": true,
+      "source": "https://www.blendkit.com/asset-gallery-detail/d484a9ce-2084-4884-a6d0-41b11a8e29c2/",
+      "file": "oak-furniture.blend",
+      "sha256": "3178e12fdcec26e7b963f96e4eb2cf1ae0cda1d168f640441683c1c1c502d0f4",
+      "bytes": 707943
+    },
+    {
+      "key": "fabric",
+      "name": "Furniture fabric",
+      "asset_id": "8568491f-b41d-4293-b0dd-20e6d2a48c32",
+      "version_id": "2ecaef76-15b5-49b0-a3c7-fdc4f440965d",
+      "author": "Zack hough",
+      "license": "CC0-1.0",
+      "is_free": true,
+      "source": "https://www.blendkit.com/asset-gallery-detail/8568491f-b41d-4293-b0dd-20e6d2a48c32/",
+      "file": "fabric.blend",
+      "sha256": "c0844329157f67077b7a104198d0ffd9cbad98452828ff622cf06ad23046624a",
+      "bytes": 2139197
+    },
+    {
+      "key": "plaster",
+      "name": "White Rough Plaster",
+      "asset_id": "0341cebd-3d28-475b-91e9-162d1c6ee0c2",
+      "version_id": "d13e9bc9-546a-46f6-aa41-e7673ae4e673",
+      "author": "Poly Haven ",
+      "license": "CC0-1.0",
+      "is_free": true,
+      "source": "https://www.blendkit.com/asset-gallery-detail/0341cebd-3d28-475b-91e9-162d1c6ee0c2/",
+      "file": "plaster.blend",
+      "sha256": "b8b4054ff61659d2a66652439f382f55b3d5d704013b6c1175a71e6b188673bd",
+      "bytes": 4590490
+    },
+    {
+      "key": "sky",
+      "name": "Urban City Highsky bluesky",
+      "asset_id": "ac22f775-9f87-4746-8dc5-ea93aed0b9c3",
+      "author": "Free poly",
+      "license": "CC0-1.0",
+      "is_free": true,
+      "source": "https://www.blendkit.com/asset-gallery-detail/ac22f775-9f87-4746-8dc5-ea93aed0b9c3/",
+      "file": "city-sky.exr",
+      "sha256": "a39782f9e2fbcbd36c5a0a79e7741b86b5aaeeea7958134b79d727e9c7d3fbec",
+      "bytes": 13682651
+    },
+    {
+      "key": "sofa-soft",
+      "name": "Cotton Mini Sofa",
+      "asset_id": "ecba830a-8df6-4375-b59c-a10a18f947f0",
+      "version_id": "d4eaa6c1-866a-431e-a30c-4c582f2070ad",
+      "author": "Muhammed Ismayil",
+      "license": "CC0-1.0",
+      "is_free": true,
+      "source": "https://www.blendkit.com/asset-gallery-detail/ecba830a-8df6-4375-b59c-a10a18f947f0/",
+      "file": "sofa-soft.blend",
+      "sha256": "fdf1de2218a16d2604c96554e0050afa86b642f40e8af9fb8538161f36607d38",
+      "bytes": 1333396
+    }
+  ]
+}

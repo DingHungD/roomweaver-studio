@@ -1,0 +1,2 @@
+import {defineConfig} from 'vite';
+export default defineConfig({server:{host:'127.0.0.1',port:5173,strictPort:true,proxy:{'/api':{target:'http://127.0.0.1:8765',changeOrigin:true,configure(proxy){(proxy as any).on('proxyReq',(request:any)=>request.setHeader('Origin','http://127.0.0.1:8765'));}}}},build:{outDir:'../src/interior/workbench_web/dist',emptyOutDir:true}});

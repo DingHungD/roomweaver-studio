@@ -1,0 +1,40 @@
+{
+  "name": "Demo apartment",
+  "kind": "synthetic",
+  "license": "MIT",
+  "units": "metres",
+  "source": "build_example.py; original primitive geometry, no external models or textures",
+  "floor_size": [
+    6,
+    4
+  ],
+  "height": 2.8,
+  "suggested_viewpoints": [
+    {
+      "name": "Living",
+      "eye": [
+        2.5,
+        1.1,
+        1.6
+      ],
+      "yaw": 135,
+      "pitch": 0,
+      "lens": 24
+    },
+    {
+      "name": "Dining",
+      "eye": [
+        3.1,
+        2.2,
+        1.6
+      ],
+      "yaw": 0,
+      "pitch": 0,
+      "lens": 24
+    }
+  ],
+  "sha256": {
+    "demo-apartment.glb": "9b5299af65aa33da6b8a23190393d687e99fcd6d9393135e20651db687ec58ad",
+    "layout.png": "74697b672ebcc676b690114d37032bea84a783340c49f9839523a41f8fd82479"
+  }
+}

@@ -1,0 +1,107 @@
+"""Isolated Blender dispatch; inputs are revisions, never model-generated code."""
+import os
+from pathlib import Path
+import shutil
+import subprocess
+from ..storage import read_json, write_json
+from .service import digest
+
+def blender_executable():
+    executable = os.environ.get('INTERIOR_BLENDER') or shutil.which('blender')
+    if not executable or not Path(executable).is_file():
+        raise ValueError('找不到 Blender，請設定 INTERIOR_BLENDER')
+    return executable
+
+def execute(project, operation, parameters):
+    root = Path(project).resolve()
+    output = (root/parameters['output']).resolve()
+    if not output.is_relative_to(root/'runs/interior-studio'):
+        raise ValueError('無效輸出目錄')
+    output.mkdir(parents=True, exist_ok=True)
+    if shutil.disk_usage(output).free < 6*1024**3:
+        raise ValueError('磁碟可用空間少於 6 GB；尚未開始渲染')
+    if operation == 'studio.prepare':
+        source = parameters['source']
+        native = (root/source['native']).resolve()
+        preview = (root/source['preview']).resolve()
+        if not native.is_relative_to(root) or not preview.is_relative_to(root):
+            raise ValueError('來源必須位於本案')
+        actual = digest(native)
+        if source.get('sha256') and source['sha256'] != actual:
+            raise ValueError('原模型雜湊不符')
+        request = dict(mode='prepare', source=str(native), preview=str(preview), source_sha256=actual,
+            output=str(output), model_id=parameters['job_id'])
+    else:
+        revision = read_json(root/'workflows/interior-studio/revisions'/f"{parameters['revision']}.json")
+        scene = revision['scene']
+        model_dir = root/'runs/interior-studio'/scene['model_id']
+        model = read_json(model_dir/'model.json')
+        native = model_dir/'model.blend'
+        if digest(native) != model['native_sha256']:
+            raise ValueError('工作模型已變動，請重新匯入')
+        request = dict(mode='lighting' if operation=='studio.lighting' else 'render', job_id=parameters['job_id'], source=str(native), output=str(output), scene=scene,
+            revision=parameters['revision'], quality=parameters['quality'], model_id=scene['model_id'])
+    def lighting_source(value):
+        if not value:return None
+        path=(root/value['path']).resolve()
+        if not path.is_relative_to(root) or path.suffix!='.blend' or digest(path)!=value['sha256']:
+            raise ValueError('照明來源不在本案或雜湊不符')
+        return dict(value,path=str(path))
+    if operation=='studio.lighting':
+        source_file=root/'workflows/interior-studio/lighting-source.json'
+        if source_file.exists():request['lighting_source']=lighting_source(read_json(source_file))
+    elif operation=='studio.render':
+        setup=scene.get('lighting_setup',{})
+        if setup.get('enabled') and setup.get('source_job_id'):
+            from .models import LightingSetup
+            setup=LightingSetup.model_validate(setup).model_dump(mode='json')
+            proposal=read_json(root/'runs/interior-studio'/setup['source_job_id']/'result.json')
+            if proposal.get('model_id')!=scene['model_id']:raise ValueError('照明提案不屬於目前模型')
+            request['lighting_source']=lighting_source(proposal.get('lighting_source'))
+    script = Path(__file__).resolve().parents[2]/'visualization/studio_blender.py'
+    def run_blender(payload, folder):
+        payload['stop_file']=str(output/'stop-requested.json')
+        write_json(folder/'request.json',payload)
+        with (folder/'blender.log').open('w',encoding='utf-8') as log:
+            process=subprocess.Popen([blender_executable(),'--background','--disable-autoexec','--python-exit-code','1',
+                '--python',str(script),'--',str(folder/'request.json')],stdout=log,stderr=log,
+                creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+            from .processes import identity
+            write_json(output/'blender-process.json',dict(pid=process.pid,identity=identity(process.pid)))
+            try:process.wait(timeout=14000)
+            except subprocess.TimeoutExpired:
+                process.terminate();process.wait(timeout=15);raise
+        return process.returncode
+    write_json(output/'request.json',request)
+    if operation=='studio.render' and scene.get('lighting_setup',{}).get('enabled'):
+        from .lighting import optimize
+        optimize(request,output,run_blender)
+        if (output/'stop-requested.json').exists():raise ValueError('已停止後續出圖')
+    code=run_blender(request,output)
+    if code:
+        if (output/'stop-requested.json').exists():raise ValueError('已停止後續照明與出圖；已產生試圖保留')
+        for filename in ('render-readiness.json','quality-checks.json'):
+            if (output/filename).exists():
+                report=read_json(output/filename)
+                if report.get('status')=='blocked':
+                    messages=report.get('issues') or [c.get('reason','') for c in report.get('checks',[]) if c.get('status')=='blocked']
+                    raise ValueError('渲染檢查未通過：'+'；'.join(messages)+' 請完成照明／鏡位修正後，以新工作重試。')
+        tail = (output/'blender.log').read_text(encoding='utf-8',errors='replace')[-2200:]
+        raise ValueError('Blender 失敗：'+tail)
+    if operation == 'studio.prepare':
+        model = read_json(output/'model.json')
+        model['native_sha256'] = digest(output/'model.blend')
+        model['preview_sha256'] = digest(output/'model.glb')
+        write_json(output/'model.json', model)
+        if digest(native) != actual:
+            raise ValueError('原件完整性核對失敗')
+        return dict(model_id=parameters['job_id'], object_count=len(model['objects']), source_preserved=True)
+    result=read_json(output/'result.json')
+    if operation=='studio.lighting':
+        from .models import LightingSetup
+        result['lighting_setup']=LightingSetup.model_validate(result['lighting_setup']).model_dump(mode='json')
+        write_json(output/'result.json',result)
+    if operation=='studio.render' and (output/'effective-lighting.json').exists():
+        result['lighting_setup']=read_json(output/'effective-lighting.json')['lighting_setup']
+        write_json(output/'result.json',result)
+    return result
