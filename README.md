@@ -85,6 +85,8 @@ $env:INTERIOR_BLENDER = "C:\Program Files\Blender Foundation\Blender 4.5\blender
 
 2D 用方向鍵／WASD 平移、滾輪縮放；3D 用 W/S 前後、A/D 水平側移、空白鍵／Shift 升降。雙擊物件進入單物件展示、拖曳旋轉；操作時先將焦點放在畫布。
 
+2D 是不受場景光照影響的材質平面，保留家具基本色與貼圖；「平面辨識模式」另將地板簡化並加上輪廓。一般 3D 編輯使用獨立補光，光影頁使用已採用的燈光設定預覽，避免 GLB 內高強度日光重複疊加。這些顯示設定不改動原材質、光源或 Blender 出圖結果。
+
 也可直接上傳 [daylight-apartment.glb](examples/daylight-apartment/daylight-apartment.glb)，但 GLB 僅使用窗外近似燈光，不能重現完整 HDRI。要得到上圖的光影，請用上述配對入口。
 
 保留的 [輕量範例](examples/demo-apartment/README.md)僅作安裝與自動測試 fixture，適合很快測試 GLB 上傳，不是品質展示。

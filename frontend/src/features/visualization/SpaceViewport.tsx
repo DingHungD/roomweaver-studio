@@ -11,6 +11,7 @@ import {eyeVector,shotDirection,planPosition} from './viewpointGeometry';
 import {lightPosition} from './lightGeometry';
 import {buildPreview,clearPreview} from './previewLighting';
 import {moveWalkCamera,lookWalkCamera} from './walkCamera';
+import {PlanDisplay,hideImportedLights} from './planDisplay';
 export type ViewMode='plan'|'walk'|'object';
 type Props={url:string;design:Scene;mode:ViewMode;selected:string;child:string;moving:boolean;onSelect:(group:string,child?:string)=>void;onMove:(id:string,delta:[number,number,number])=>void;
   planContrast?:boolean;onInspect?:(id:string)=>void;onSelectionCenter?:(xyz:[number,number,number])=>void;
@@ -39,23 +40,26 @@ export default function SpaceViewport(props:Props){
     const transform=new TransformControls(camera,renderer.domElement);transform.setMode('translate');transform.setSpace('world');const helper=transform.getHelper();world.add(helper);
     const box={box:new THREE.Box3(),visible:false};
     const outlines:THREE.LineSegments[]=[];
-    const floorPreview=new THREE.MeshStandardMaterial({color:'#e4e7df',roughness:1});
-    const floorMaterials=new Map<THREE.Mesh,THREE.Material|THREE.Material[]>();
+    const planDisplay=new PlanDisplay();
     const clip=new THREE.Plane(new THREE.Vector3(0,-1,0),1.3);
     let assembly:AssemblyRuntime|undefined;const keys=new Set<string>();let down=[0,0],dragging=false,wasTransform=false,span=8;let lastPick={id:'',time:0};let needsSetup=true;
     function resize(){const w=Math.max(1,element.clientWidth),h=Math.max(1,element.clientHeight);renderer.setSize(w,h);perspective.aspect=w/h;perspective.updateProjectionMatrix();plan.left=-span*w/h;plan.right=span*w/h;plan.top=span;plan.bottom=-span;plan.updateProjectionMatrix();if(needsSetup&&assembly&&element.clientWidth>0){needsSetup=false;setup();}}
-    function refresh(){if(!assembly)return;const p=live.current;floorMaterials.forEach((material,mesh)=>{mesh.material=material;});floorMaterials.clear();applyDesign(assembly,p.design);
+    function refresh(){if(!assembly)return;const p=live.current;planDisplay.restore();applyDesign(assembly,p.design);
       for(const [id,g] of assembly.groups){const spec=p.design.groups.find(x=>x.id===id)!;g.visible=!spec.deleted&&(p.mode!=='object'||id===p.selected);}
-      const actual=p.lightEditing&&p.mode==='walk';displayLights.visible=!actual;lightingPreview.visible=!!actual;
+      const actual=p.lightEditing&&p.mode==='walk';displayLights.visible=!actual&&p.mode!=='plan';lightingPreview.visible=!!actual;
       renderer.shadowMap.enabled=!!actual;renderer.shadowMap.needsUpdate=!!actual;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.toneMappingExposure=actual?1.4*Math.pow(2,p.design.lighting_setup?.exposure||0):1.4;
       world.background=new THREE.Color(actual?'#252925':'#e8e9e1');
-      assembly.root.traverse(o=>{if(o instanceof THREE.Light){o.userData.previewWasVisible??=o.visible;o.visible=actual?false:o.userData.previewWasVisible;}});
+      hideImportedLights(assembly.root);
       const nextKey=actual?JSON.stringify([p.design.lighting_setup,p.design.groups.map(g=>[g.id,g.translation,g.deleted]),p.lightId,p.softLighting]):'';
       if(nextKey!==previewKey){previewKey=nextKey;if(actual){const size=new THREE.Box3().setFromObject(assembly.root).getSize(new THREE.Vector3());buildPreview(lightingPreview,p.design,p.lightId||'',{soften:p.softLighting,floorArea:size.x*size.z});}else clearPreview(lightingPreview);}
       // A horizontal cut makes the plan selectable even when a full ceiling exists.
       renderer.clippingPlanes=p.mode==='plan'?[clip]:[];
       outlines.forEach(line=>{line.visible=p.mode==='plan'&&p.planContrast!==false;});
-      if(p.mode==='plan'&&p.planContrast!==false){for(const spec of p.design.groups){if(!/^(floor|floor[-_ ]|地板|地坪)/i.test(spec.name))continue;assembly.groups.get(spec.id)?.traverse(o=>{if(o instanceof THREE.Mesh){floorMaterials.set(o,o.material);o.material=floorPreview;}});}}
+      if(p.mode==='plan'){
+        const floors=new Set<THREE.Mesh>();
+        if(p.planContrast!==false)for(const spec of p.design.groups){if(!/^(floor|floor[-_ ]|地板|地坪)/i.test(spec.name))continue;assembly.groups.get(spec.id)?.traverse(o=>{if(o instanceof THREE.Mesh)floors.add(o);});}
+        planDisplay.apply(assembly.root,floors);
+      }
       const group=assembly.groups.get(p.selected);const part=p.mode==='object'&&p.child?assembly.parts.get(p.child):group;
       box.visible=!!part&&visible(part);if(part&&box.visible)box.box.setFromObject(part);
       if(group&&visible(group)){const c=new THREE.Box3().setFromObject(group).getCenter(new THREE.Vector3());p.onSelectionCenter?.([c.x,-c.z,c.y]);}
@@ -121,7 +125,7 @@ export default function SpaceViewport(props:Props){
         }));
       }
     }frame=requestAnimationFrame(draw);
-    return()=>{disposed=true;runtime.current=null;cancelAnimationFrame(frame);observer.disconnect();transform.dispose();orbit.dispose();element.removeEventListener('keydown',keydown);element.removeEventListener('blur',blur);window.removeEventListener('keyup',keyup);window.removeEventListener('blur',blur);assembly?.materials.forEach(m=>m.dispose());floorMaterials.forEach((material,mesh)=>{mesh.material=material;});floorPreview.dispose();clearPreview(lightingPreview);dispose(world);renderer.dispose();element.removeChild(renderer.domElement);};
+    return()=>{disposed=true;runtime.current=null;cancelAnimationFrame(frame);observer.disconnect();transform.dispose();orbit.dispose();element.removeEventListener('keydown',keydown);element.removeEventListener('blur',blur);window.removeEventListener('keyup',keyup);window.removeEventListener('blur',blur);assembly?.materials.forEach(m=>m.dispose());planDisplay.restore();clearPreview(lightingPreview);dispose(world);renderer.dispose();element.removeChild(renderer.domElement);};
   },[props.url]);
   useEffect(()=>{runtime.current?.refresh();},[props.design,props.selected,props.child,props.moving,props.planContrast,props.lightId,props.softLighting]);
   useEffect(()=>{runtime.current?.setup();},[props.mode,props.mode==='object'?props.selected:'',props.mode==='walk'?JSON.stringify([props.focusPoint?.id,props.focusPoint?.eye]):'',props.mode==='walk'?JSON.stringify(props.focusShot||props.focusPoint?.shots[0]):'',props.previewReset]);

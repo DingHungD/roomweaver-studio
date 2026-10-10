@@ -27,7 +27,7 @@ export default function SpaceEditor({scene,project,onChange,onCandidate,onContin
     </div>
     <div className="space-editor-grid">
       <div>{active&&<SpaceViewport planContrast={contrast} url={fileUrl(project,scene.model_id,'model.glb')} design={scene} mode={mode} selected={selected} child={child} moving={moving} onSelect={select} onInspect={id=>{select(id);setMoving(false);setMode('object');}} onMove={(id,delta)=>edit(s=>{s.groups.find(g=>g.id===id)!.translation=delta;})}/>}
-        <div className="space-bottom"><span>{mode==='object'?`${group?.name||''} · 只顯示此單物件`:mode==='plan'&&contrast?'淡化地板、加深物件邊線，僅供辨識；實際材質不變。':'平面與 3D 共用同一模型，修改後請保存。'}</span><button className="primary" disabled={busy} onClick={onContinue}>設定光影 →</button></div>
+        <div className="space-bottom"><span>{mode==='object'?`${group?.name||''} · 只顯示此單物件`:mode==='plan'&&contrast?'平面不套用場景光照；柔化地板、保留家具色彩與邊線，實際材質不變。':'平面與 3D 共用同一模型，修改後請保存。'}</span><button className="primary" disabled={busy} onClick={onContinue}>設定光影 →</button></div>
       </div>
       <aside className="studio-inspector assembly-inspector">
         <h3>{mode==='object'?'單物件與子物件':'選取單物件'}</h3>
