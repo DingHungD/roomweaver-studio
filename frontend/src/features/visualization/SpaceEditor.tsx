@@ -6,7 +6,7 @@ import type {ViewMode} from './SpaceViewport';
 
 export default function SpaceEditor({scene,project,onChange,onCandidate,onContinue,busy,active,canUndo,onUndo}:{active:boolean;canUndo:boolean;onUndo:()=>void;scene:Scene;project:string;onChange:(scene:Scene)=>void;onCandidate:(id:string)=>void;onContinue:()=>void;busy:boolean}){
   const [mode,setMode]=useState<ViewMode>('plan'),[selected,setSelected]=useState(scene.groups.find(g=>!g.deleted)?.id||''),[child,setChild]=useState(''),[moving,setMoving]=useState(false),[search,setSearch]=useState('');
-  const [contrast,setContrast]=useState(true);
+  const [contrast,setContrast]=useState(false);
   const [showDeleted,setShowDeleted]=useState(false);
   useEffect(()=>{if(active){setMode('plan');setChild('');setMoving(false);}},[active]);
   useEffect(()=>{if(!scene.groups.some(g=>g.id===selected)){setSelected(scene.groups.find(g=>!g.deleted)?.id||'');setChild('');}},[scene.groups,selected]);
@@ -21,13 +21,13 @@ export default function SpaceEditor({scene,project,onChange,onCandidate,onContin
       <button role="tab" aria-selected={mode==='plan'} onClick={()=>{setMode('plan');setChild('');}}>2D 平面圖</button>
       <button role="tab" aria-selected={mode==='walk'} onClick={()=>{setMode('walk');setChild('');}}>3D 畫面</button>
       {group&&!group.deleted&&<button role="tab" aria-selected={mode==='object'} onClick={inspect}>3D 單物件展示</button>}
-      {mode==='plan'&&<label className="plan-contrast"><input type="checkbox" checked={contrast} onChange={e=>setContrast(e.target.checked)}/>平面辨識模式</label>}
+      {mode==='plan'&&<label className="plan-contrast"><input type="checkbox" checked={contrast} onChange={e=>setContrast(e.target.checked)}/>加強輪廓辨識</label>}
       <span>{scene.groups.filter(g=>!g.deleted).length} 個單物件 · {scene.objects.length} 個組成</span>
       <button disabled={!canUndo||busy} onClick={onUndo}>復原上一步</button>
     </div>
     <div className="space-editor-grid">
       <div>{active&&<SpaceViewport planContrast={contrast} url={fileUrl(project,scene.model_id,'model.glb')} design={scene} mode={mode} selected={selected} child={child} moving={moving} onSelect={select} onInspect={id=>{select(id);setMoving(false);setMode('object');}} onMove={(id,delta)=>edit(s=>{s.groups.find(g=>g.id===id)!.translation=delta;})}/>}
-        <div className="space-bottom"><span>{mode==='object'?`${group?.name||''} · 只顯示此單物件`:mode==='plan'&&contrast?'平面不套用場景光照；柔化地板、保留家具色彩與邊線，實際材質不變。':'平面與 3D 共用同一模型，修改後請保存。'}</span><button className="primary" disabled={busy} onClick={onContinue}>設定光影 →</button></div>
+        <div className="space-bottom"><span>{mode==='object'?`${group?.name||''} · 只顯示此單物件`:mode==='plan'?contrast?'輪廓辨識：簡化地板與光影，實際材質不變。':'柔光平面：保留材質、柔和陰影與室內置中；預覽光不影響出圖。':'平面與 3D 共用同一模型，修改後請保存。'}</span><button className="primary" disabled={busy} onClick={onContinue}>設定光影 →</button></div>
       </div>
       <aside className="studio-inspector assembly-inspector">
         <h3>{mode==='object'?'單物件與子物件':'選取單物件'}</h3>

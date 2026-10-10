@@ -12,6 +12,9 @@ import {lightPosition} from './lightGeometry';
 import {buildPreview,clearPreview} from './previewLighting';
 import {moveWalkCamera,lookWalkCamera} from './walkCamera';
 import {PlanDisplay,hideImportedLights} from './planDisplay';
+import {planRegion} from './planRegion';
+import {createPlanLighting} from './planLighting';
+import {PlanCaps} from './planCaps';
 export type ViewMode='plan'|'walk'|'object';
 type Props={url:string;design:Scene;mode:ViewMode;selected:string;child:string;moving:boolean;onSelect:(group:string,child?:string)=>void;onMove:(id:string,delta:[number,number,number])=>void;
   planContrast?:boolean;onInspect?:(id:string)=>void;onSelectionCenter?:(xyz:[number,number,number])=>void;
@@ -36,6 +39,8 @@ export default function SpaceViewport(props:Props){
     renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.4;renderer.localClippingEnabled=true;renderer.shadowMap.autoUpdate=false;element.appendChild(renderer.domElement);
     const displayLights=new THREE.Group();world.add(displayLights);displayLights.add(new THREE.HemisphereLight(0xffffff,0x777766,2.2));const light=new THREE.DirectionalLight(0xffffff,2);light.position.set(8,20,10);displayLights.add(light);
     const lightingPreview=new THREE.Group();world.add(lightingPreview);let previewKey='';
+    const planLighting=createPlanLighting();world.add(planLighting.root);planLighting.root.visible=false;
+    const planCaps=new PlanCaps();world.add(planCaps.root);
     const orbit=new OrbitControls<THREE.PerspectiveCamera|THREE.OrthographicCamera>(camera,renderer.domElement);orbit.enableDamping=true;
     const transform=new TransformControls(camera,renderer.domElement);transform.setMode('translate');transform.setSpace('world');const helper=transform.getHelper();world.add(helper);
     const box={box:new THREE.Box3(),visible:false};
@@ -47,18 +52,24 @@ export default function SpaceViewport(props:Props){
     function refresh(){if(!assembly)return;const p=live.current;planDisplay.restore();applyDesign(assembly,p.design);
       for(const [id,g] of assembly.groups){const spec=p.design.groups.find(x=>x.id===id)!;g.visible=!spec.deleted&&(p.mode!=='object'||id===p.selected);}
       const actual=p.lightEditing&&p.mode==='walk';displayLights.visible=!actual&&p.mode!=='plan';lightingPreview.visible=!!actual;
-      renderer.shadowMap.enabled=!!actual;renderer.shadowMap.needsUpdate=!!actual;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.toneMappingExposure=actual?1.4*Math.pow(2,p.design.lighting_setup?.exposure||0):1.4;
-      world.background=new THREE.Color(actual?'#252925':'#e8e9e1');
+      const softPlan=p.mode==='plan'&&p.planContrast!==true;planLighting.root.visible=softPlan;
+      renderer.shadowMap.enabled=!!actual||softPlan;renderer.shadowMap.needsUpdate=!!actual||softPlan;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.toneMappingExposure=actual?1.4*Math.pow(2,p.design.lighting_setup?.exposure||0):softPlan?1:1.4;
+      world.background=new THREE.Color(actual?'#252925':p.mode==='plan'?'#f3f2ed':'#e8e9e1');
       hideImportedLights(assembly.root);
       const nextKey=actual?JSON.stringify([p.design.lighting_setup,p.design.groups.map(g=>[g.id,g.translation,g.deleted]),p.lightId,p.softLighting]):'';
       if(nextKey!==previewKey){previewKey=nextKey;if(actual){const size=new THREE.Box3().setFromObject(assembly.root).getSize(new THREE.Vector3());buildPreview(lightingPreview,p.design,p.lightId||'',{soften:p.softLighting,floorArea:size.x*size.z});}else clearPreview(lightingPreview);}
       // A horizontal cut makes the plan selectable even when a full ceiling exists.
-      renderer.clippingPlanes=p.mode==='plan'?[clip]:[];
-      outlines.forEach(line=>{line.visible=p.mode==='plan'&&p.planContrast!==false;});
+      const region=p.mode==='plan'?planRegion(assembly,p.design):null;
+      if(region)for(const id of region.hidden){const group=assembly.groups.get(id);if(group)group.visible=false;}
+      renderer.clippingPlanes=region?[clip,...region.planes]:[];
+      planCaps.root.visible=softPlan;
+      outlines.forEach(line=>{line.visible=p.mode==='plan'&&p.planContrast===true;});
       if(p.mode==='plan'){
         const floors=new Set<THREE.Mesh>();
-        if(p.planContrast!==false)for(const spec of p.design.groups){if(!/^(floor|floor[-_ ]|地板|地坪)/i.test(spec.name))continue;assembly.groups.get(spec.id)?.traverse(o=>{if(o instanceof THREE.Mesh)floors.add(o);});}
-        planDisplay.apply(assembly.root,floors);
+        if(p.planContrast===true)for(const spec of p.design.groups){if(!/^floor(?:$|[-_\s])|^(地板|地坪)/i.test(spec.name))continue;assembly.groups.get(spec.id)?.traverse(o=>{if(o instanceof THREE.Mesh)floors.add(o);});}
+        planDisplay.apply(assembly.root,floors,softPlan,renderer.clippingPlanes);
+        if(region)planLighting.fit(region.bounds);
+        if(softPlan)planCaps.update(assembly,p.design,renderer.clippingPlanes);
       }
       const group=assembly.groups.get(p.selected);const part=p.mode==='object'&&p.child?assembly.parts.get(p.child):group;
       box.visible=!!part&&visible(part);if(part&&box.visible)box.box.setFromObject(part);
@@ -67,7 +78,7 @@ export default function SpaceViewport(props:Props){
       else transform.detach();
     }
     function setup(){if(!assembly)return;if(!element.clientWidth){needsSetup=true;return;}needsSetup=false;keys.clear();const p=live.current;refresh();
-      const bounds=new THREE.Box3();for(const g of assembly.groups.values())if(g.visible)bounds.expandByObject(g);
+      const bounds=p.mode==='plan'?planRegion(assembly,p.design).bounds:new THREE.Box3();if(p.mode!=='plan')for(const g of assembly.groups.values())if(g.visible)bounds.expandByObject(g);
       if(bounds.isEmpty())bounds.setFromCenterAndSize(new THREE.Vector3(),new THREE.Vector3(4,2,4));
       const center=bounds.getCenter(new THREE.Vector3()),size=bounds.getSize(new THREE.Vector3());
       camera=p.mode==='plan'?plan:perspective;orbit.object=camera;transform.camera=camera;
@@ -87,13 +98,13 @@ export default function SpaceViewport(props:Props){
     const observer=new ResizeObserver(resize);observer.observe(element);
     function highlight(){if(!assembly)return;const p=live.current;const o=p.mode==='object'&&p.child?assembly.parts.get(p.child):assembly.groups.get(p.selected);if(o&&visible(o)){box.visible=true;box.box.setFromObject(o);}else box.visible=false;}
     transform.addEventListener('dragging-changed',e=>{dragging=!!e.value;orbit.enabled=!dragging&&live.current.mode!=='walk';if(dragging)wasTransform=true;else if(assembly&&transform.object){const id=transform.object.userData.group_id;const delta=transform.object.position.clone().sub(assembly.bases.get(id)!);live.current.onMove(id,[delta.x,-delta.z,delta.y]);}});
-    transform.addEventListener('objectChange',highlight);
+    transform.addEventListener('objectChange',()=>{highlight();renderer.shadowMap.needsUpdate=true;if(assembly&&planCaps.root.visible)planCaps.update(assembly,live.current.design,renderer.clippingPlanes);});
     const ray=new THREE.Raycaster();
     function pointerDown(e:PointerEvent){element.focus();down=[e.clientX,e.clientY];wasTransform=!!transform.axis;}
     function pointerMove(e:PointerEvent){if(e.buttons===1&&live.current.mode==='walk'&&!live.current.moving&&!dragging){lookWalkCamera(camera,e.movementX,e.movementY);}}
     function pointerUp(e:PointerEvent){if(live.current.pointEditing||(live.current.lightEditing&&live.current.mode==='plan')||!assembly||wasTransform||dragging||Math.hypot(e.clientX-down[0],e.clientY-down[1])>5)return;const r=element.getBoundingClientRect();ray.setFromCamera(new THREE.Vector2((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1),camera);
       if(live.current.lightEditing){for(const hit of ray.intersectObject(lightingPreview,true)){if(hit.object.userData.lightId){live.current.onLightSelect?.(hit.object.userData.lightId);break;}}return;}
-      for(const hit of ray.intersectObject(assembly.root,true)){if(!(hit.object instanceof THREE.Mesh)||!visible(hit.object)||(live.current.mode==='plan'&&hit.point.y>1.3001))continue;let part:THREE.Object3D|null=hit.object;while(part&&!part.userData.studio_id)part=part.parent;let group=part;while(group&&!group.userData.group_id)group=group.parent;if(part&&group){const id=group.userData.group_id;live.current.onSelect(id,live.current.mode==='object'?part.userData.studio_id:undefined);
+      for(const hit of ray.intersectObjects([assembly.root,planCaps.root],true)){if(!(hit.object instanceof THREE.Mesh)||!visible(hit.object)||(live.current.mode==='plan'&&renderer.clippingPlanes.some(plane=>plane.distanceToPoint(hit.point)<-.0001)))continue;let part:THREE.Object3D|null=hit.object.userData.planSource||hit.object;while(part&&!part.userData.studio_id)part=part.parent;let group=part;while(group&&!group.userData.group_id)group=group.parent;if(part&&group){const id=group.userData.group_id;live.current.onSelect(id,live.current.mode==='object'?part.userData.studio_id:undefined);
         const now=performance.now();if(live.current.mode!=='object'&&lastPick.id===id&&now-lastPick.time<380){live.current.onInspect?.(id);lastPick={id:'',time:0};}else lastPick={id,time:now};break;}}
     }
     function wheel(e:WheelEvent){if(live.current.mode==='walk'){e.preventDefault();perspective.fov=THREE.MathUtils.clamp(perspective.fov+e.deltaY*.03,20,95);perspective.updateProjectionMatrix();}}
@@ -125,7 +136,7 @@ export default function SpaceViewport(props:Props){
         }));
       }
     }frame=requestAnimationFrame(draw);
-    return()=>{disposed=true;runtime.current=null;cancelAnimationFrame(frame);observer.disconnect();transform.dispose();orbit.dispose();element.removeEventListener('keydown',keydown);element.removeEventListener('blur',blur);window.removeEventListener('keyup',keyup);window.removeEventListener('blur',blur);assembly?.materials.forEach(m=>m.dispose());planDisplay.restore();clearPreview(lightingPreview);dispose(world);renderer.dispose();element.removeChild(renderer.domElement);};
+    return()=>{disposed=true;runtime.current=null;cancelAnimationFrame(frame);observer.disconnect();transform.dispose();orbit.dispose();element.removeEventListener('keydown',keydown);element.removeEventListener('blur',blur);window.removeEventListener('keyup',keyup);window.removeEventListener('blur',blur);assembly?.materials.forEach(m=>m.dispose());planDisplay.restore();planLighting.dispose();planCaps.dispose();clearPreview(lightingPreview);dispose(world);renderer.dispose();element.removeChild(renderer.domElement);};
   },[props.url]);
   useEffect(()=>{runtime.current?.refresh();},[props.design,props.selected,props.child,props.moving,props.planContrast,props.lightId,props.softLighting]);
   useEffect(()=>{runtime.current?.setup();},[props.mode,props.mode==='object'?props.selected:'',props.mode==='walk'?JSON.stringify([props.focusPoint?.id,props.focusPoint?.eye]):'',props.mode==='walk'?JSON.stringify(props.focusShot||props.focusPoint?.shots[0]):'',props.previewReset]);

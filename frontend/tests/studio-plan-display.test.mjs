@@ -39,3 +39,15 @@ test('imported daylight is isolated without changing intensity, mesh visibility 
   assert.equal(sun.visible,false);assert.equal(spot.visible,false);assert.equal(sun.intensity,1229);
   assert.equal(fixture.visible,true);assert.equal(editorLight.visible,true);
 });
+
+test('soft plan retains PBR maps, clips shadows and restores original emission and material',()=>{
+  const original=new THREE.MeshPhysicalMaterial({color:'#7e9aab',map:new THREE.Texture(),normalMap:new THREE.Texture(),roughnessMap:new THREE.Texture(),metalnessMap:new THREE.Texture(),aoMap:new THREE.Texture(),roughness:.6,metalness:.2,clearcoat:.4,emissive:0xffffff,emissiveIntensity:500});
+  const mesh=new THREE.Mesh(new THREE.BoxGeometry(),original),root=new THREE.Group();root.add(mesh);
+  const planes=[new THREE.Plane(new THREE.Vector3(0,-1,0),1.3)],display=new PlanDisplay();display.apply(root,new Set(),true,planes);
+  const preview=mesh.material;assert.ok(preview instanceof THREE.MeshPhysicalMaterial);
+  for(const channel of ['map','normalMap','roughnessMap','metalnessMap','aoMap'])assert.equal(preview[channel],original[channel]);
+  assert.equal(preview.roughness,.6);assert.equal(preview.clearcoat,.4);assert.equal(preview.emissiveIntensity,0);
+  assert.equal(preview.clipShadows,true);assert.equal(preview.clippingPlanes,planes);
+  assert.equal(original.emissiveIntensity,500);assert.equal(original.clippingPlanes,null);
+  display.restore();assert.equal(mesh.material,original);
+});
