@@ -60,7 +60,7 @@ workspace/
 
 API：`POST /api/studio/projects/{id}/plans/upload`（multipart）；`GET .../plans/current`；`PUT .../plans/{plan_id}`（base_revision＋settings）；`POST .../plans/{plan_id}/build`（plan_revision＋目前 Studio base_revision）。保存與建立皆拒絕過期版本，原件 SHA 改變即拒絕重播。平面確認是本地保存狀態；採用模型後接原有 LangGraph 設計／渲染流程。
 
-此功能獨立實作於本 repo，不依賴母工作區案件、Skill runtime 或完整舊四階段交付。既有 `concept-2` 呈現核心並未全部移入；精細家具資產替換、DWG／SKP adapter 仍為後續工作。
+此功能獨立實作於本 repo，不依賴母工作區案件、Skill runtime 或完整舊四階段交付。既有 `concept-2` 呈現核心並未全部移入；精細家具現可透過下方 BlenderKit 配對替換；DWG／SKP adapter 仍為後續工作。
 
 ## 備份與恢復
 
@@ -174,3 +174,36 @@ Layout POST optionally accepts `parent_id` to resume a candidate with retained o
 Reviewed revisions accept `source_questions` with image-pixel regions. GET/PUT `layout/{id}/answers` stores immutable answer snapshots with `base_revision`, `base_answer_id`, answers keyed by question ID and A→B `source_marks`. Unknown IDs, out-of-image/nonfinite or coincident endpoints, stale source revisions and concurrent answer writes are rejected. Saving never changes geometry, review acceptance or task status. Parent-based Agent tasks receive saved question evidence; answer content remains source material, not an instruction to bypass validation. The UI retains a local draft per run/revision and requires explicit save into the case.
 
 `floor_gap_tolerance` (0–0.25m) and `excluded_floor_ids` are preview-only review inputs: short traced gaps may be joined without removing existing wall obstacles. Polygons retain interior holes, furniture and use zones must still fit the original floor, and route reports flag `inferred_floor`. Inferred routes cannot produce a ready report; adoption also rejects inferred sites. A morphological connection is not surveyed geometry or permission to change confirmed dimensions. Cyan overlays expose this uncertainty instead of reporting a successful design.
+
+
+### BlenderKit assembly matching and replacement
+
+`studio/staging.py` proposes revision-bound decor and lighting placements from actual GLB/concept bounds. It adds no second Agent loop or rendering queue: applying a proposal saves an immutable scene, then starts the existing `AssetBatch` for its selected additions only. Stable support/type IDs prevent duplicate additions; failed rows can be retried through the UI. Layout is deterministic, catalog search/ranking uses Codex, downloads and model fit remain application-validated. Ceiling fixtures have separate bound lights and a top-mounted fitting rule. Existing furniture height safeguards are not relaxed for decorative objects. No automatic storage cleanup is performed.
+
+`StagingPanel` and `AssetBatch` share `syncAssetBatch`: the final scene must finish loading before publishing a terminal batch status, because that status tears down polling. Concurrent unsaved edits cannot be overwritten by a late response. Synthetic fixtures in `tests/fixtures/staging/` exercise placement without any Project03 IDs or coordinates.
+
+See [BLENDERKIT.md](BLENDERKIT.md) for the UI and endpoint contracts. Catalog requests use a fixed official host allowlist and bounded responses. Codex generates search words and ranks verified IDs; model output never supplies download URLs or executable code. Free candidates sort before paid backups, and paid downloads require explicit selection and existing user entitlement. Credentials stay in the backend environment.
+
+Replacement is a revision-bound `studio.replace` queue job. Blender works on a new snapshot, retains unrelated native object identities and revision edits, regenerates GLB and checks its spatial/native mapping before adoption. Assembly identity and bound lights remain stable; selected material slots detach shared mesh data. Source links persist on the assembly or material assignment. Sources and provenance remain available; superseded replacement binaries are reclaimed after explicit whole-batch review as described below. Stale completion never overwrites current edits. Native lighting proposals may follow a validated replacement ancestry.
+
+
+### 批次配對、旋轉與素材保留策略（本機）
+
+`asset_batch.py` 保存可檢視的目標快照，使用同一 Agent 執行器依序配對，單件結果仍由 `asset_matching.py` 驗證及採用。沒有新增另一個自主 Agent 迴圈；圖片是使用者明確選用的風格參考。配對結果允許沿同一模型 lineage 使用，但目標內容必須一致，或目前採用來源可證明是同一份候選清單的替換。
+
+ObjectGroup 新增可選 `rotation`（水平角度）與 `rotation_pivot`（Blender XYZ 公尺），舊場景按 0 處理。Three.js 與 Blender 皆套用 `Translate(delta+pivot) × RotateZ(angle) × Translate(-pivot)`；綁定光源同樣變換。
+
+素材保留策略改為保留現用模型及來源紀錄。`asset_storage.py` 在全體確認後清理已採用 replacement 的祖先大檔、現用下載暫存及本批次未採用工作；保留原始匯入、其他獨立未採用結果、照明依賴及圖片。先寫退休標記再刪除檔案，修訂保存與工作提交拒絕已退休模型。工作執行中暫緩；不保證歷次替換均能離線還原，備份／恢復也不能讓已清理模型重生。
+
+
+### 自動第一版與最終確認
+
+`asset_automation.AutoPlacement` 在 Agent 搜尋結束後，將每個目標的免費候選依序交給既有 Blender 工作佇列。狀態、嘗試過的候選、工作 ID 及當前修訂存於案件 batch 的 `placement.json`；不建立第二個渲染佇列。固定操作 ID 去重，恢復時核對既有工作與實際採用場景；其他編輯造成版本變動則暫停。每一個目標都保留結果，不用 parent Agent 的 passed 代表整屋替換成功。
+
+新增 batch `/stop`、`/resume`、`/confirm`。只有綁定現行修訂的全體確認可啟動清理；未替換項目須明確保留原件。新語義取代先前「每次 adopt 自動清理」。原始匯入、現用模型、照明來源及非本批次未採用工作受保護；備選中繼資料不刪除。
+
+### Manual area additions and direct catalog links
+
+`placementArea.ts` normalizes 2D drag direction into Blender XY metres; visible surface raycasts provide an editable bottom height. `AddFurniture` creates the existing concept geometry; `SpaceEditor` saves it as an immutable revision before requesting matching. Group `editor_kind`, `design_prompt`, and `model_url` are optional backward-compatible fields preserved through replacement. Classification is explicit for new items, with concept/name fallback for older imports.
+
+`POST .../asset-links` accepts a revision-bound assembly and an official BlenderKit asset UUID URL. It reads bounded catalog metadata and creates the same persisted candidate contract used by Agent matching, with source `link`. Operation IDs prevent duplicate metadata creation, revision checks reject stale targets, and the existing replacement service rechecks authorization, price, license, geometry and provenance. Search failures leave the saved placeholder available for retry. No arbitrary URL downloader or second adoption path is introduced.

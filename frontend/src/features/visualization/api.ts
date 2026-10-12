@@ -1,10 +1,11 @@
 export type StudioLight={id:string;name:string;kind:"AREA"|"POINT"|"SPOT"|"SUN";position:[number,number,number];rotation:[number,number,number];power:number;color:[number,number,number];size:number;angle:number;enabled:boolean;locked:boolean;group_id:string|null;origin:"native"|"restored"|"proposal"|"manual"};
 export type LightingSetup={enabled:boolean;mode:"existing"|"day"|"indoor";exposure:number;auto_adjust:boolean;agent_review:boolean;source_job_id?:string|null;lights:StudioLight[]};
-export type Material = {description:string; url:string; color:string|null; roughness:number; candidate_id?:string|null};
+export type AssetReference={asset_id:string;version_id:string;task_id:string;name:string;url:string;kind:'model'|'material';license:string;is_free:boolean;status:'reference'|'applied'};
+export type Material = {description:string; url:string; color:string|null; roughness:number; candidate_id?:string|null;asset_reference?:AssetReference|null};
 export type StudioObject = {id:string; name:string; room_id:string|null; material:Material};
 export type Shot = {id:string; name:string; yaw:number; pitch:number; lens:number};
 export type Viewpoint = {id:string; name:string; room_id:string; eye:[number,number,number]; shots:Shot[]};
-export type ObjectGroup = {id:string;name:string;children:string[];translation:[number,number,number];deleted:boolean;method:string};
+export type ObjectGroup = {id:string;name:string;children:string[];translation:[number,number,number];rotation?:number;rotation_pivot?:[number,number,number];deleted:boolean;method:string;editor_kind?:'furniture'|'decor'|null;design_prompt?:string;model_url?:string;asset_reference?:AssetReference|null};
 export type ConceptFurniture={id:string;name:string;asset:string;size:[number,number,number];parts:{id:string;name:string;center:[number,number,number];size:[number,number,number]}[]};
 export type Scene = {model_id:string; rooms:{id:string;name:string}[]; objects:StudioObject[]; groups:ObjectGroup[]; concept_furniture?:ConceptFurniture[];design_notes?:string[]; viewpoints:Viewpoint[]; links:[string,string][]; lighting:'existing'; lighting_setup?:LightingSetup};
 export type Revision = {revision:string|null; scene:Scene|null};

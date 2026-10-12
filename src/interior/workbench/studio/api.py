@@ -36,6 +36,10 @@ class OutputCleanup(Strict):
     base_revision: str = Field(pattern=r'^[a-f0-9]{32}$')
     job_ids: list[str] = Field(min_length=1,max_length=1000)
 
+class AssetReview(Strict):
+    base_revision: str = Field(pattern=r'^[a-f0-9]{32}$')
+    keep_original: list[str] = Field(default_factory=list,max_length=100)
+
 def install(app, store, jobs):
     studio=Studio(store,jobs)
     agents=AgentTasks(store.state_dir)
@@ -51,6 +55,94 @@ def install(app, store, jobs):
     images=ImageIntake(studio,agents)
     from .layout_design import LayoutDesign, LayoutRequest, AdoptLayout, LayoutBrief, ReviseLayout, LayoutAnswers
     layouts=LayoutDesign(studio,agents)
+    from .asset_matching import AssetMatching, MatchRequest, SelectAsset, LinkAsset
+    assets=AssetMatching(studio,agents)
+    from .asset_batch import AssetBatch, BatchRequest, inventory
+    batches=AssetBatch(assets)
+    from .staging import Staging, StageRequest, StageApply, StageRetry
+    staging=Staging(studio,batches)
+
+    @app.post('/api/studio/projects/{project_id}/staging')
+    def stage_preview(project_id:str,body:StageRequest):return staging.preview(project_id,body)
+
+    @app.get('/api/studio/projects/{project_id}/staging/current')
+    def stage_current(project_id:str,kind:Literal['decor','lighting']):return staging.current(project_id,kind)
+
+    @app.post('/api/studio/projects/{project_id}/staging/{identifier}/apply')
+    def stage_apply(project_id:str,identifier:str,body:StageApply):return staging.apply(project_id,identifier,body)
+
+    @app.post('/api/studio/projects/{project_id}/staging/{identifier}/retry')
+    def stage_retry(project_id:str,identifier:str,body:StageRetry):return staging.retry(project_id,identifier,body)
+    jobs.close_callbacks.append(batches.automation.close)
+    from .asset_storage import clean_replacements, source_history
+
+    @app.post('/api/studio/projects/{project_id}/asset-storage/cleanup')
+    def asset_cleanup(project_id:str,body:ConfirmWorkflow):
+        latest=batches.current(project_id)
+        if latest and latest['settings'].get('auto_apply') and not latest.get('confirmed'):
+            raise Conflict('請先在一鍵配置中確認所有家具，再清理未使用模型')
+        return clean_replacements(studio,project_id,body.base_revision)
+
+    @app.get('/api/studio/projects/{project_id}/asset-history')
+    def asset_history(project_id:str,group_id:str):return source_history(studio,project_id,group_id)
+
+    @app.get('/api/studio/projects/{project_id}/asset-batches/inventory')
+    def asset_inventory(project_id:str):return inventory(studio.current(project_id)['scene'])
+
+    @app.post('/api/studio/projects/{project_id}/asset-style-images')
+    async def asset_style_image(project_id:str,file:UploadFile=File(...)):
+        return batches.upload(project_id,await file.read(5*1024**2+1))
+
+    @app.get('/api/studio/projects/{project_id}/asset-style-images/{identifier}')
+    def get_asset_style_image(project_id:str,identifier:str):return FileResponse(batches.image(project_id,identifier),media_type='image/jpeg')
+
+    @app.get('/api/studio/projects/{project_id}/asset-batches/current')
+    def current_asset_batch(project_id:str):return batches.current(project_id)
+
+    @app.post('/api/studio/projects/{project_id}/asset-batches')
+    def start_asset_batch(project_id:str,body:BatchRequest):return batches.start(project_id,body)
+
+    @app.get('/api/studio/projects/{project_id}/asset-batches/{identifier}')
+    def get_asset_batch(project_id:str,identifier:str):return batches.get(project_id,identifier)
+
+    @app.post('/api/studio/projects/{project_id}/asset-batches/{identifier}/stop')
+    def stop_asset_batch(project_id:str,identifier:str):return batches.automation.stop(project_id,identifier)
+
+    @app.post('/api/studio/projects/{project_id}/asset-batches/{identifier}/resume')
+    def resume_asset_batch(project_id:str,identifier:str,body:ConfirmWorkflow):
+        batches.get(project_id,identifier)
+        batches.automation.start(project_id,identifier,body.base_revision)
+        return batches.get(project_id,identifier)
+
+    @app.post('/api/studio/projects/{project_id}/asset-batches/{identifier}/confirm')
+    def confirm_asset_batch(project_id:str,identifier:str,body:AssetReview):
+        return batches.automation.confirm(project_id,identifier,body.base_revision,body.keep_original)
+
+    @app.get('/api/studio/projects/{project_id}/asset-matches/current')
+    def current_assets(project_id:str,group_id:str):return assets.current(project_id,group_id)
+
+    @app.post('/api/studio/projects/{project_id}/asset-matches')
+    def match_assets(project_id:str,body:MatchRequest):return assets.start(project_id,body)
+
+    @app.post('/api/studio/projects/{project_id}/asset-links')
+    def link_asset(project_id:str,body:LinkAsset):return assets.from_link(project_id,body)
+
+    @app.get('/api/studio/projects/{project_id}/asset-matches/{task_id}')
+    def get_assets(project_id:str,task_id:str):return assets.get(project_id,task_id)
+
+    @app.post('/api/studio/projects/{project_id}/asset-matches/{task_id}/reference')
+    def reference_asset(project_id:str,task_id:str,body:SelectAsset):return assets.reference(project_id,task_id,body)
+
+    @app.post('/api/studio/projects/{project_id}/asset-matches/{task_id}/replace')
+    def replace_asset(project_id:str,task_id:str,body:SelectAsset):return assets.replace(project_id,task_id,body)
+
+    @app.post('/api/studio/projects/{project_id}/asset-replacements/{job_id}/adopt')
+    def adopt_asset(project_id:str,job_id:str,body:ConfirmWorkflow):
+        if body.confirmation_id!=job_id:raise ValueError('替換確認識別碼不符')
+        return assets.adopt(project_id,job_id,body.base_revision)
+
+    @app.post('/api/studio/projects/{project_id}/asset-replacements/restore')
+    def restore_asset(project_id:str,body:ConfirmWorkflow):return assets.restore(project_id,body.base_revision)
     from .models import ConceptFurniture
 
     @app.get('/api/studio/concept-furniture')

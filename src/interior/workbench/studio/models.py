@@ -9,12 +9,29 @@ class Room(Strict):
     id: str = Field(pattern=r'^[a-zA-Z0-9_-]{1,80}$')
     name: str = Field(min_length=1, max_length=120)
 
+class AssetReference(Strict):
+    asset_id: str = Field(pattern=r'^[a-f0-9-]{36}$')
+    version_id: str = Field(pattern=r'^[a-f0-9-]{36}$')
+    task_id: str = Field(pattern=r'^[a-f0-9]{32}$')
+    name: str = Field(max_length=200)
+    url: str
+    kind: Literal['model','material']
+    license: str = Field(max_length=100)
+    is_free: bool
+    status: Literal['reference','applied'] = 'reference'
+
+    @model_validator(mode='after')
+    def source_url(self):
+        if self.url!=f'https://www.blenderkit.com/asset-gallery-detail/{self.asset_id}/':raise ValueError('素材來源網址與 ID 不一致')
+        return self
+
 class Material(Strict):
     description: str = Field(default='', max_length=4000)
     url: str = Field(default='', max_length=2000)
     color: str | None = Field(default=None, pattern=r'^#[0-9a-fA-F]{6}$')
     roughness: float = Field(default=.5, ge=0, le=1)
     candidate_id: str | None = None
+    asset_reference: AssetReference | None = None
 
 class ObjectAssignment(Strict):
     id: str
@@ -27,8 +44,14 @@ class ObjectGroup(Strict):
     name: str = Field(min_length=1, max_length=200)
     children: list[str] = Field(min_length=1, max_length=50000)
     translation: tuple[float, float, float] = (0, 0, 0)
+    rotation: float = Field(default=0, ge=-360, le=360)
+    rotation_pivot: tuple[float, float, float] = (0, 0, 0)
     deleted: bool = False
     method: str = 'individual'
+    editor_kind: Literal['furniture','decor'] | None = None
+    design_prompt: str = Field(default='',max_length=2000)
+    model_url: str = Field(default='',max_length=2000)
+    asset_reference: AssetReference | None = None
 
 class Shot(Strict):
     id: str = Field(pattern=r'^[a-zA-Z0-9_-]{1,80}$')
@@ -82,7 +105,7 @@ class LightingSetup(Strict):
 class ConceptFurniture(Strict):
     id: str = Field(pattern=r'^concept-[a-f0-9]{32}$')
     name: str = Field(min_length=1,max_length=100)
-    asset: Literal['chair','desk','table','bed','sofa','cabinet','bunk_bed','washer','cooker','television']
+    asset: Literal['chair','desk','table','bed','sofa','cabinet','bunk_bed','washer','cooker','television','ceiling_light','floor_lamp','vase','books','cookware','tableware','soap','plant','rug']
     size: tuple[float,float,float]
     parts: list[dict] = Field(default_factory=list,max_length=30)
 

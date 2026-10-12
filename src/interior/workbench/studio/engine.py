@@ -20,7 +20,24 @@ def execute(project, operation, parameters):
     output.mkdir(parents=True, exist_ok=True)
     if shutil.disk_usage(output).free < 6*1024**3:
         raise ValueError('磁碟可用空間少於 6 GB；尚未開始渲染')
-    if operation == 'studio.prepare':
+    replacing = operation == 'studio.replace'
+    if replacing:
+        from .blenderkit_client import download
+        revision=read_json(root/'workflows/interior-studio/revisions'/f"{parameters['revision']}.json")
+        scene=revision['scene'];model_dir=root/'runs/interior-studio'/scene['model_id']
+        native=model_dir/'model.blend';model=read_json(model_dir/'model.json')
+        actual=digest(native)
+        if actual!=model['native_sha256']:raise ValueError('原工作模型已變動')
+        asset=parameters['asset'];asset_path=output/'asset.blend'
+        provenance=download(asset,asset_path,parameters['job_id'])
+        write_json(output/'asset-provenance.json',provenance)
+        preview=output/'source.glb';preview_actual=None
+        request=dict(mode='prepare',source=str(native),preview=str(preview),source_sha256=actual,
+            output=str(output),model_id=parameters['job_id'],asset=dict(asset,path=str(asset_path)),
+            design=scene,target_group=parameters['group_id'],target_object=parameters.get('object_id'),
+            asset_rotation=parameters['rotation'],auto_fit=parameters.get('auto_fit',False),task_id=parameters['task_id'])
+        source={}
+    elif operation == 'studio.prepare':
         source = parameters['source']
         if source.get('plan'):
             from .plan_import import check_plan
@@ -72,7 +89,7 @@ def execute(project, operation, parameters):
             from .models import LightingSetup
             setup=LightingSetup.model_validate(setup).model_dump(mode='json')
             proposal=read_json(root/'runs/interior-studio'/setup['source_job_id']/'result.json')
-            if proposal.get('model_id')!=scene['model_id']:raise ValueError('照明提案不屬於目前模型')
+            if proposal.get('model_id') not in [scene['model_id'],*model.get('ancestor_model_ids',[])]:raise ValueError('照明提案不屬於目前模型')
             request['lighting_source']=lighting_source(proposal.get('lighting_source'))
     script = Path(__file__).resolve().parents[2]/'visualization/studio_blender.py'
     def run_blender(payload, folder):
@@ -104,8 +121,12 @@ def execute(project, operation, parameters):
                     raise ValueError('渲染檢查未通過：'+'；'.join(messages)+' 請完成照明／鏡位修正後，以新工作重試。')
         tail = (output/'blender.log').read_text(encoding='utf-8',errors='replace')[-2200:]
         raise ValueError('Blender 失敗：'+tail)
-    if operation == 'studio.prepare':
+    if operation == 'studio.prepare' or replacing:
         model = read_json(output/'model.json')
+        if replacing:
+            original_model=read_json(model_dir/'model.json')
+            model['ancestor_model_ids']=[scene['model_id'],*original_model.get('ancestor_model_ids',[])]
+            model['replacement']=dict(source_revision=parameters['revision'],group_id=parameters['group_id'],asset_id=asset['asset_id'])
         model['native_sha256'] = digest(output/'model.blend')
         model['preview_sha256'] = digest(output/'model.glb')
         write_json(output/'model.json', model)
@@ -117,7 +138,8 @@ def execute(project, operation, parameters):
             raise ValueError('預覽來源在交接期間變動，請重新匯入')
         if source.get('plan') and digest(plan_path)!=source['plan_sha256']:
             raise ValueError('平面修訂在交接期間變動')
-        return dict(model_id=parameters['job_id'], object_count=len(model['objects']), source_preserved=True,handoff=handoff)
+        return dict(model_id=parameters['job_id'], object_count=len(model['objects']), source_preserved=True,handoff=handoff,
+            replacement=replacing)
     result=read_json(output/'result.json')
     if operation=='studio.lighting':
         from .models import LightingSetup

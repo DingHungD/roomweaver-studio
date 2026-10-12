@@ -1,14 +1,14 @@
 import type {Scene,StudioLight,LightingSetup} from './api';
 export const defaultLighting=():LightingSetup=>({enabled:false,mode:'existing',exposure:0,auto_adjust:true,agent_review:false,lights:[]});
-export function lightPosition(light:StudioLight,scene:Scene):[number,number,number]{
-  const delta=scene.groups.find(g=>g.id===light.group_id)?.translation||[0,0,0];
-  return light.position.map((v,i)=>v+delta[i]) as [number,number,number];
+function transformLight(light:StudioLight,scene:Scene,point:number[],inverse=false):[number,number,number]{
+  const group=scene.groups.find(g=>g.id===light.group_id),delta=group?.translation||[0,0,0],pivot=group?.rotation_pivot||[0,0,0];
+  const a=(group?.rotation||0)*Math.PI/180*(inverse?-1:1),c=Math.cos(a),s=Math.sin(a);
+  const v=point.map((n,i)=>n-pivot[i]-(inverse?delta[i]:0));
+  return [v[0]*c-v[1]*s+pivot[0]+(inverse?0:delta[0]),v[0]*s+v[1]*c+pivot[1]+(inverse?0:delta[1]),point[2]+(inverse?-delta[2]:delta[2])];
 }
-// Stored coordinates are relative to the group's original placement, matching Blender.
-export function placeLight(light:StudioLight,scene:Scene,world:number[]):StudioLight{
-  const delta=scene.groups.find(g=>g.id===light.group_id)?.translation||[0,0,0];
-  return {...light,position:world.map((v,i)=>v-delta[i]) as [number,number,number]};
-}
+export function lightPosition(light:StudioLight,scene:Scene):[number,number,number]{return transformLight(light,scene,light.position);}
+export function lightRotation(light:StudioLight,scene:Scene):[number,number,number]{return [light.rotation[0],light.rotation[1],light.rotation[2]+(scene.groups.find(g=>g.id===light.group_id)?.rotation||0)*Math.PI/180];}
+export function placeLight(light:StudioLight,scene:Scene,world:number[]):StudioLight{return {...light,position:transformLight(light,scene,world,true)};}
 export function bindLight(light:StudioLight,scene:Scene,group_id:string|null):StudioLight{
   return placeLight({...light,group_id},scene,lightPosition(light,scene));
 }

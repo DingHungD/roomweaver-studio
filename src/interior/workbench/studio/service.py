@@ -65,6 +65,8 @@ class Studio:
     def save(self, project_id, scene, base_revision):
         scene = Scene.model_validate(scene).model_dump(mode='json')
         model = self.model(project_id, scene['model_id'])
+        if (self.root(project_id)/'runs/interior-studio'/scene['model_id']/'model-retired.json').exists():
+            raise Conflict('此舊模型已釋放儲存空間，只保留來源紀錄；請使用目前版本或重新下載素材')
         if not scene['groups']:
             scene['groups']=self.groups(project_id,scene['model_id'])
         extra={p['id'] for f in scene['concept_furniture'] for p in f['parts']}

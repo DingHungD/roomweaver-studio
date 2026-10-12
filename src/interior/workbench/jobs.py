@@ -81,7 +81,7 @@ class Jobs:
     def submit_studio(self,project_id,operation,parameters,operation_id):
         """Reserve one deterministic effect in the same transaction as its queue item."""
         import re
-        if operation not in ('prepare','render','lighting') or not re.fullmatch(r'[A-Za-z0-9_-]{8,100}',operation_id):
+        if operation not in ('prepare','render','lighting','replace') or not re.fullmatch(r'[A-Za-z0-9_-]{8,100}',operation_id):
             raise ValueError('Studio 工作識別碼無效')
         project=self.store.project(project_id)
         fingerprint=hashlib.sha256(json.dumps([project_id,operation,parameters],sort_keys=True,ensure_ascii=False).encode()).hexdigest()
@@ -94,6 +94,10 @@ class Jobs:
                         raise Conflict('操作識別碼已用於不同內容')
                     return self.get(previous[1])
                 identifier=uuid4().hex
+                if parameters.get('revision'):
+                    revision=read_json(project.root/'workflows/interior-studio/revisions'/f"{parameters['revision']}.json")
+                    if (project.root/'runs/interior-studio'/revision['scene']['model_id']/'model-retired.json').exists():
+                        raise ValueError('舊模型已釋放儲存空間，請使用目前版本或重新下載素材')
                 output='runs/interior-studio/'+identifier
                 item=dict(id=identifier,project_id=project_id,operation='studio.'+operation,status='queued',
                     created_at=now(),updated_at=now(),output=output,source_revision=parameters.get('revision'),

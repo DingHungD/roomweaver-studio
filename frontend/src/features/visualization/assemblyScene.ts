@@ -19,7 +19,10 @@ export function applyDesign(runtime:AssemblyRuntime,design:Scene){
   syncConcepts(runtime,design);
   for(const group of design.groups||[]){const node=runtime.groups.get(group.id);if(!node)continue;
     const delta=new THREE.Vector3(group.translation[0],group.translation[2],-group.translation[1]);
-    node.position.copy(runtime.bases.get(group.id)!).add(delta);node.visible=!group.deleted;
+    const pivot=new THREE.Vector3(...[group.rotation_pivot?.[0]||0,group.rotation_pivot?.[2]||0,-(group.rotation_pivot?.[1]||0)]);
+    const angle=THREE.MathUtils.degToRad(group.rotation||0);
+    node.position.copy(runtime.bases.get(group.id)!).sub(pivot).applyAxisAngle(new THREE.Vector3(0,1,0),angle).add(pivot).add(delta);
+    node.rotation.set(0,angle,0);node.visible=!group.deleted;
   }
   for(const spec of design.objects){const part=runtime.parts.get(spec.id);if(!part)continue;
     part.traverse(o=>{if(!(o instanceof THREE.Mesh))return;

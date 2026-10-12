@@ -24,6 +24,9 @@ elif Path(request['source']).suffix.lower()=='.glb':
     bpy.ops.import_scene.gltf(filepath=request['source'])
 else:
     bpy.ops.wm.open_mainfile(filepath=request['source'])
+if request.get('asset'):
+    from asset_blender import replace_asset
+    replace_asset(request)
 scene = bpy.context.scene
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 from studio_render_checks import inspect_scene, inspect_image
@@ -143,14 +146,15 @@ else:
     matrices={key:o.matrix_world.copy() for key,o in by_id.items()}
     for group in design.get('groups',[]):
         delta=Vector(group.get('translation',[0,0,0]))
+        pivot=Vector(group.get('rotation_pivot',[0,0,0]))
+        angle=math.radians(group.get('rotation',0))
+        change=Matrix.Translation(delta+pivot)@Matrix.Rotation(angle,4,'Z')@Matrix.Translation(-pivot)
         for identifier in group['children']:
             obj=by_id[identifier]
-            matrix=matrices[identifier].copy();matrix.translation+=delta
-            if delta.length:
-                obj.matrix_world=matrix
+            obj.matrix_world=change@matrices[identifier]
             if group.get('deleted'):
                 obj.hide_render=True;obj.hide_set(True)
-        if delta.length or group.get('deleted'):edited.append(group['id'])
+        if delta.length or angle or group.get('deleted'):edited.append(group['id'])
     bpy.context.view_layer.update()
     after_edits=geometry_digest()
     applied=[]

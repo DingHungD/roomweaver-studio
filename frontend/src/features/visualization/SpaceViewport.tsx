@@ -15,15 +15,21 @@ import {PlanDisplay,hideImportedLights} from './planDisplay';
 import {planRegion} from './planRegion';
 import {createPlanLighting} from './planLighting';
 import {PlanCaps} from './planCaps';
+import {makeArea} from './placementArea';
+import type {PlacementArea} from './placementArea';
 export type ViewMode='plan'|'walk'|'object';
-type Props={url:string;design:Scene;mode:ViewMode;selected:string;child:string;moving:boolean;onSelect:(group:string,child?:string)=>void;onMove:(id:string,delta:[number,number,number])=>void;
+type Props={areaEditing?:boolean;placementArea?:PlacementArea|null;onArea?:(area:PlacementArea)=>void;onAreaCancel?:()=>void;url:string;design:Scene;mode:ViewMode;selected:string;child:string;moving:boolean;transformMode?:'translate'|'rotate';onRotate?:(id:string,angle:number,pivot:[number,number,number])=>void;onSelect:(group:string,child?:string)=>void;onMove:(id:string,delta:[number,number,number])=>void;
   planContrast?:boolean;onInspect?:(id:string)=>void;onSelectionCenter?:(xyz:[number,number,number])=>void;
   softLighting?:boolean;lightEditing?:boolean;lightId?:string;onLightSelect?:(id:string)=>void;onLightMove?:(id:string,xy:[number,number])=>void;
   pointEditing?:boolean;pointId?:string;focusPoint?:Viewpoint;focusShot?:Shot;previewReset?:number;
   onPointSelect?:(id:string)=>void;onPointMove?:(id:string,xy:[number,number])=>void;onPlanCenter?:(xy:[number,number])=>void};
 export default function SpaceViewport(props:Props){
   const host=useRef<HTMLDivElement>(null),live=useRef(props);live.current=props;
-  const runtime=useRef<{assembly:AssemblyRuntime;refresh:()=>void;setup:()=>void;planAt:(x:number,y:number)=>[number,number]|null}|null>(null);
+  const runtime=useRef<{assembly:AssemblyRuntime;refresh:()=>void;setup:()=>void;planAt:(x:number,y:number)=>[number,number]|null;heightAt:(x:number,y:number)=>number}|null>(null);
+  const areaDrag=useRef<{a:[number,number];b:[number,number]}|null>(null);
+  const [areaRect,setAreaRect]=useState<{x:number;y:number;width:number;height:number}|null>(null);
+  const areaOverlay=useRef<SVGSVGElement>(null);
+  useEffect(()=>{const el=areaOverlay.current;if(!el)return;const stop=(e:WheelEvent)=>{e.preventDefault();e.stopPropagation();};el.addEventListener('wheel',stop,{passive:false});return()=>{el.removeEventListener('wheel',stop);areaDrag.current=null;};},[props.areaEditing]);
   const pointDrag=useRef<{id:string;offset:[number,number];xy:[number,number];start:[number,number];moved:boolean}|null>(null);
   const [markers,setMarkers]=useState<{id:string;x:number;y:number;dx:number;dy:number}[]>([]);
   const [selectionLines,setSelectionLines]=useState<{x1:number;y1:number;x2:number;y2:number}[]>([]);
@@ -56,7 +62,7 @@ export default function SpaceViewport(props:Props){
       renderer.shadowMap.enabled=!!actual||softPlan;renderer.shadowMap.needsUpdate=!!actual||softPlan;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.toneMappingExposure=actual?1.4*Math.pow(2,p.design.lighting_setup?.exposure||0):softPlan?1:1.4;
       world.background=new THREE.Color(actual?'#252925':p.mode==='plan'?'#f3f2ed':'#e8e9e1');
       hideImportedLights(assembly.root);
-      const nextKey=actual?JSON.stringify([p.design.lighting_setup,p.design.groups.map(g=>[g.id,g.translation,g.deleted]),p.lightId,p.softLighting]):'';
+      const nextKey=actual?JSON.stringify([p.design.lighting_setup,p.design.groups.map(g=>[g.id,g.translation,g.rotation,g.rotation_pivot,g.deleted]),p.lightId,p.softLighting]):'';
       if(nextKey!==previewKey){previewKey=nextKey;if(actual){const size=new THREE.Box3().setFromObject(assembly.root).getSize(new THREE.Vector3());buildPreview(lightingPreview,p.design,p.lightId||'',{soften:p.softLighting,floorArea:size.x*size.z});}else clearPreview(lightingPreview);}
       // A horizontal cut makes the plan selectable even when a full ceiling exists.
       const region=p.mode==='plan'?planRegion(assembly,p.design):null;
@@ -74,7 +80,7 @@ export default function SpaceViewport(props:Props){
       const group=assembly.groups.get(p.selected);const part=p.mode==='object'&&p.child?assembly.parts.get(p.child):group;
       box.visible=!!part&&visible(part);if(part&&box.visible)box.box.setFromObject(part);
       if(group&&visible(group)){const c=new THREE.Box3().setFromObject(group).getCenter(new THREE.Vector3());p.onSelectionCenter?.([c.x,-c.z,c.y]);}
-      if(group&&p.moving&&p.mode!=='object'&&visible(group)){transform.attach(group);transform.showY=p.mode!=='plan';}
+      if(group&&p.moving&&p.mode!=='object'&&visible(group)){transform.setMode(p.transformMode||'translate');transform.attach(group);transform.showX=p.transformMode!=='rotate';transform.showZ=p.transformMode!=='rotate';transform.showY=p.transformMode==='rotate'||p.mode!=='plan';}
       else transform.detach();
     }
     function setup(){if(!assembly)return;if(!element.clientWidth){needsSetup=true;return;}needsSetup=false;keys.clear();const p=live.current;refresh();
@@ -94,12 +100,19 @@ export default function SpaceViewport(props:Props){
     new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).load(props.url,gltf=>{if(disposed){dispose(gltf.scene);return;}world.add(gltf.scene);assembly=assemble(gltf.scene,live.current.design);
       const meshes:THREE.Mesh[]=[];gltf.scene.traverse(o=>{if(o instanceof THREE.Mesh)meshes.push(o);});
       for(const mesh of meshes){mesh.castShadow=true;mesh.receiveShadow=true;const edge=new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry,35),new THREE.LineBasicMaterial({color:0x47594e,transparent:true,opacity:.85}));edge.userData.planOutline=true;mesh.add(edge);outlines.push(edge);}
-      runtime.current={assembly,refresh,setup,planAt};setup();setMessage('');},undefined,()=>setMessage('模型載入失敗，請重新開啟已保存設計。'));
+      runtime.current={assembly,refresh,setup,planAt,heightAt};setup();setMessage('');},undefined,()=>setMessage('模型載入失敗，請重新開啟已保存設計。'));
     const observer=new ResizeObserver(resize);observer.observe(element);
     function highlight(){if(!assembly)return;const p=live.current;const o=p.mode==='object'&&p.child?assembly.parts.get(p.child):assembly.groups.get(p.selected);if(o&&visible(o)){box.visible=true;box.box.setFromObject(o);}else box.visible=false;}
-    transform.addEventListener('dragging-changed',e=>{dragging=!!e.value;orbit.enabled=!dragging&&live.current.mode!=='walk';if(dragging)wasTransform=true;else if(assembly&&transform.object){const id=transform.object.userData.group_id;const delta=transform.object.position.clone().sub(assembly.bases.get(id)!);live.current.onMove(id,[delta.x,-delta.z,delta.y]);}});
+    transform.addEventListener('dragging-changed',e=>{dragging=!!e.value;orbit.enabled=!dragging&&live.current.mode!=='walk';if(dragging)wasTransform=true;else if(assembly&&transform.object){const id=transform.object.userData.group_id;const spec=live.current.design.groups.find(g=>g.id===id)!;if(live.current.transformMode==='rotate'){const b=assembly.bases.get(id)!;live.current.onRotate?.(id,THREE.MathUtils.radToDeg(Math.atan2(2*(transform.object.quaternion.w*transform.object.quaternion.y+transform.object.quaternion.x*transform.object.quaternion.z),1-2*(transform.object.quaternion.y**2+transform.object.quaternion.z**2))),spec.rotation_pivot||[b.x,-b.z,b.y]);}else{const before=assembly.bases.get(id)!.clone(),pivot=new THREE.Vector3(spec.rotation_pivot?.[0]||0,spec.rotation_pivot?.[2]||0,-(spec.rotation_pivot?.[1]||0));before.sub(pivot).applyAxisAngle(new THREE.Vector3(0,1,0),THREE.MathUtils.degToRad(spec.rotation||0)).add(pivot);const delta=transform.object.position.clone().sub(before);live.current.onMove(id,[delta.x,-delta.z,delta.y]);}}});
     transform.addEventListener('objectChange',()=>{highlight();renderer.shadowMap.needsUpdate=true;if(assembly&&planCaps.root.visible)planCaps.update(assembly,live.current.design,renderer.clippingPlanes);});
     const ray=new THREE.Raycaster();
+    function heightAt(x:number,y:number){
+      if(!assembly)return 0;
+      const top=new THREE.Box3().setFromObject(assembly.root).max.y+10;
+      ray.set(new THREE.Vector3(x,top,-y),new THREE.Vector3(0,-1,0));
+      const hit=ray.intersectObjects([assembly.root,planCaps.root],true).find(h=>h.object instanceof THREE.Mesh&&visible(h.object)&&!renderer.clippingPlanes.some(p=>p.distanceToPoint(h.point)<-.0001));
+      return hit?Math.round(hit.point.y*1000)/1000:0;
+    }
     function pointerDown(e:PointerEvent){element.focus();down=[e.clientX,e.clientY];wasTransform=!!transform.axis;}
     function pointerMove(e:PointerEvent){if(e.buttons===1&&live.current.mode==='walk'&&!live.current.moving&&!dragging){lookWalkCamera(camera,e.movementX,e.movementY);}}
     function pointerUp(e:PointerEvent){if(live.current.pointEditing||(live.current.lightEditing&&live.current.mode==='plan')||!assembly||wasTransform||dragging||Math.hypot(e.clientX-down[0],e.clientY-down[1])>5)return;const r=element.getBoundingClientRect();ray.setFromCamera(new THREE.Vector2((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1),camera);
@@ -120,6 +133,13 @@ export default function SpaceViewport(props:Props){
       if(p.mode==='walk'){moveWalkCamera(camera,forward,sideways,Number(keys.has(' '))-Number(keys.has('shift')),dt);}
       if(orbit.enabled)orbit.update();renderer.render(world,camera);
       if(t-lastLabel>50){lastLabel=t;setPosition(`X ${camera.position.x.toFixed(2)} · Y ${(-camera.position.z).toFixed(2)} · 高 ${camera.position.y.toFixed(2)} m`);
+        const draft=areaDrag.current;
+        const region=draft?makeArea(draft.a,draft.b):p.placementArea;
+        if(region&&p.mode==='plan'){
+          const a=eyeVector([region.center[0]-region.size[0]/2,region.center[1]-region.size[1]/2,0]).project(camera);
+          const b=eyeVector([region.center[0]+region.size[0]/2,region.center[1]+region.size[1]/2,0]).project(camera);
+          setAreaRect({x:(Math.min(a.x,b.x)+1)*element.clientWidth/2,y:(1-Math.max(a.y,b.y))*element.clientHeight/2,width:Math.abs(a.x-b.x)*element.clientWidth/2,height:Math.abs(a.y-b.y)*element.clientHeight/2});
+        }else setAreaRect(null);
         if(box.visible){
           const {min,max}=box.box;
           const corners=Array.from({length:8},(_,i)=>new THREE.Vector3(i&1?max.x:min.x,i&2?max.y:min.y,i&4?max.z:min.z).project(camera));
@@ -138,7 +158,7 @@ export default function SpaceViewport(props:Props){
     }frame=requestAnimationFrame(draw);
     return()=>{disposed=true;runtime.current=null;cancelAnimationFrame(frame);observer.disconnect();transform.dispose();orbit.dispose();element.removeEventListener('keydown',keydown);element.removeEventListener('blur',blur);window.removeEventListener('keyup',keyup);window.removeEventListener('blur',blur);assembly?.materials.forEach(m=>m.dispose());planDisplay.restore();planLighting.dispose();planCaps.dispose();clearPreview(lightingPreview);dispose(world);renderer.dispose();element.removeChild(renderer.domElement);};
   },[props.url]);
-  useEffect(()=>{runtime.current?.refresh();},[props.design,props.selected,props.child,props.moving,props.planContrast,props.lightId,props.softLighting]);
+  useEffect(()=>{runtime.current?.refresh();},[props.design,props.selected,props.child,props.moving,props.transformMode,props.planContrast,props.lightId,props.softLighting]);
   useEffect(()=>{runtime.current?.setup();},[props.mode,props.mode==='object'?props.selected:'',props.mode==='walk'?JSON.stringify([props.focusPoint?.id,props.focusPoint?.eye]):'',props.mode==='walk'?JSON.stringify(props.focusShot||props.focusPoint?.shots[0]):'',props.previewReset]);
   function dragPoint(e:React.PointerEvent<SVGGElement>){
     const drag=pointDrag.current;if(!drag)return;
@@ -148,6 +168,15 @@ export default function SpaceViewport(props:Props){
   }
   return <div className="space-viewport">
     <div ref={host} tabIndex={0} role="application" aria-label="空間操作畫布" className="space-canvas"/>
+    {props.mode==='plan'&&(props.areaEditing||props.placementArea)&&<svg ref={areaOverlay} className={`placement-overlay ${props.areaEditing?'drawing':''}`} tabIndex={props.areaEditing?0:-1} role="application" aria-label="框選新增範圍"
+      onKeyDown={e=>{if(e.key==='Escape'){areaDrag.current=null;props.onAreaCancel?.();}}}
+      onPointerDown={e=>{if(!props.areaEditing||e.button!==0||!runtime.current)return;e.preventDefault();e.stopPropagation();e.currentTarget.focus();const p=runtime.current.planAt(e.clientX,e.clientY);if(!p)return;e.currentTarget.setPointerCapture(e.pointerId);areaDrag.current={a:p,b:p};}}
+      onPointerMove={e=>{const p=runtime.current?.planAt(e.clientX,e.clientY);if(areaDrag.current&&p)areaDrag.current.b=p;}}
+      onPointerCancel={()=>{areaDrag.current=null;props.onAreaCancel?.();}}
+      onPointerUp={e=>{const d=areaDrag.current;areaDrag.current=null;if(e.currentTarget.hasPointerCapture(e.pointerId))e.currentTarget.releasePointerCapture(e.pointerId);if(!d)return;const end=runtime.current?.planAt(e.clientX,e.clientY)||d.b;const area=makeArea(d.a,end);area.height=runtime.current?.heightAt(...area.center)||0;if(Math.min(...area.size)>.01)props.onArea?.(area);}}>
+      {areaRect&&<rect {...areaRect} fill="#427d662d" stroke="#285744" strokeWidth="2" strokeDasharray="7 4"/>}
+      {props.areaEditing&&<text x="16" y="54" fill="#285744" fontSize="14">拖曳框選新增範圍 · Esc 取消</text>}
+    </svg>}
     {!!selectionLines.length&&<svg className="selection-overlay" aria-label="已選取物件外框">{selectionLines.map((line,i)=><g key={i}><line {...line} className="selection-underlay"/><line {...line} className="selection-dash"/></g>)}</svg>}
     {props.lightEditing&&props.mode==='plan'&&!message&&<svg className="viewpoint-overlay light-overlay" aria-label="光源平面配置">
       {markers.map((p,i)=>{const light=props.design.lighting_setup?.lights.find(l=>l.id===p.id);if(!light)return null;const active=p.id===props.lightId;return <g key={p.id} transform={`translate(${p.x} ${p.y})`}>

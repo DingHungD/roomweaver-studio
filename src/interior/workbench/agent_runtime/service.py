@@ -31,7 +31,7 @@ class AgentTasks:
             client.close()
 
     def start(self,kind,model=None,payload=None,identifier=None):
-        if kind not in ('connection','vision','tool','browser','material','plan_image','plan_refine','layout_design'):
+        if kind not in ('connection','vision','tool','browser','material','plan_image','plan_refine','layout_design','asset_match','asset_batch'):
             raise ValueError('不支援的 Agent 任務')
         identifier=identifier or uuid4().hex
         if (self.root/identifier/'task.json').exists():
@@ -76,8 +76,11 @@ class AgentTasks:
             mcp=None
             if kind=='connection':
                 prompt='只回覆 STUDIO_READY。'
-            elif kind=='layout_design':
-                if not any(m['id']==result['model'] for m in status['models']):raise ValueError('請選擇目前帳號可用的配置模型')
+            elif kind in ('layout_design','asset_match','asset_batch'):
+                if result['model'] and not any(m['id']==result['model'] for m in status['models']):raise ValueError('請選擇目前帳號可用的模型')
+                if kind=='asset_batch' and any(t.get('images') for t in payload.get('targets',[])):
+                    available=next((m for m in status['models'] if m['id']==result['model'] or (not result['model'] and m.get('isDefault'))),None)
+                    if not available or 'image' not in available.get('inputModalities',[]):raise ValueError('風格參考圖需要支援圖片的 Agent 模型；請在 Agent 設定選擇後重試')
                 prompt=''
             elif kind in ('plan_image','plan_refine'):
                 from ..studio.image_plan import recognition_prompt
@@ -113,7 +116,15 @@ class AgentTasks:
                 if packet.get('method') in ('item/completed','turn/completed','error'):
                     with (directory/'events.jsonl').open('a',encoding='utf-8') as stream:
                         stream.write(json.dumps(packet,ensure_ascii=False)+'\n')
-            if kind=='layout_design':
+            if kind=='asset_batch':
+                from ..studio.asset_batch import run_batch
+                result.update(run_batch(client,directory,payload,result['model'],progress,event))
+                passed=True
+            elif kind=='asset_match':
+                from ..studio.asset_matching import run_matching
+                result.update(run_matching(client,directory,payload,result['model'],progress,event))
+                passed=True
+            elif kind=='layout_design':
                 from ..studio.layout_design import run_layout
                 result.update(run_layout(client,directory,payload,result['model'],progress,event))
                 passed=True  # task completed; layout_report independently gates adoption
@@ -124,7 +135,7 @@ class AgentTasks:
             else:
                 response=client.run(prompt,model=result['model'],image=image,mcp=mcp,timeout=600 if kind=='plan_image' else 240,on_event=event)
                 result['response']=response
-            if kind in ('plan_refine','layout_design'):
+            if kind in ('plan_refine','layout_design','asset_match','asset_batch'):
                 pass
             elif kind=='connection':
                 passed=response['text'].strip()=='STUDIO_READY'
@@ -187,7 +198,7 @@ class AgentTasks:
                     result['status']='stopped'
                 result['finished_at']=now()
                 write_json(directory/'task.json',result)
-                if result['kind'] in ('plan_image','plan_refine','layout_design') and payload.get('result_path'):
+                if result['kind'] in ('plan_image','plan_refine','layout_design','asset_match','asset_batch') and payload.get('result_path'):
                     write_json(Path(payload['result_path']),result)
             self.slots.release()
 

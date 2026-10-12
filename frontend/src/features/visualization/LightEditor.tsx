@@ -1,11 +1,12 @@
 import {useState} from 'react';
 import {fileUrl} from './api';
-import type {Scene} from './api';
+import type {Scene,Revision} from './api';
+import StagingPanel from './StagingPanel';
 import SpaceViewport from './SpaceViewport';
 import LightingPanel from './LightingPanel';
-import {lightPosition,placeLight} from './lightGeometry';
+import {lightPosition,placeLight,newLight} from './lightGeometry';
 
-export default function LightEditor(props:{onContinue:()=>void;active:boolean;canUndo:boolean;onUndo:()=>void;project:string;revision:string|null;scene:Scene;dirty:boolean;busy:boolean;onChange:(s:Scene)=>void;onSave:()=>Promise<string|null|undefined>}){
+export default function LightEditor(props:{model:string;onAccept:(r:Revision)=>void;onContinue:()=>void;active:boolean;canUndo:boolean;onUndo:()=>void;project:string;revision:string|null;scene:Scene;dirty:boolean;busy:boolean;onChange:(s:Scene)=>void;onSave:()=>Promise<string|null|undefined>}){
   const {scene,project,onChange}=props;
   const [viewId,setViewId]=useState(scene.viewpoints[0]?.id||'');
   const [softLighting,setSoftLighting]=useState(true);
@@ -13,7 +14,8 @@ export default function LightEditor(props:{onContinue:()=>void;active:boolean;ca
   const [mode,setMode]=useState<'plan'|'walk'>('plan');
   const [selected,setSelected]=useState(''),[center,setCenter]=useState<[number,number]>([0,0]);
   return <section className="space-editor light-editor">
-    <div className="space-navigation"><button role="tab" aria-selected={mode==='plan'} onClick={()=>setMode('plan')}>2D 光源配置</button><button role="tab" aria-selected={mode==='walk'} onClick={()=>setMode('walk')}>3D 光影預覽</button><span>{scene.lighting_setup?.lights.length||0} 個光源 · 家具位置鎖定</span><button disabled={!props.canUndo||props.busy} onClick={props.onUndo}>復原上一步</button></div>
+    <div className="space-navigation"><button role="tab" aria-selected={mode==='plan'} onClick={()=>setMode('plan')}>2D 光源配置</button><button role="tab" aria-selected={mode==='walk'} onClick={()=>setMode('walk')}>3D 光影預覽</button><span>{scene.lighting_setup?.lights.length||0} 個光源 · 家具位置鎖定</span></div>
+    <StagingPanel {...props} kind="lighting" actions={locked=><><button disabled={locked||props.busy} onClick={()=>{const next=structuredClone(scene);next.lighting_setup||={enabled:true,mode:'existing',exposure:0,auto_adjust:true,agent_review:false,lights:[]};const l=newLight([...center,2.5]);next.lighting_setup.enabled=true;next.lighting_setup.lights.push(l);onChange(next);setSelected(l.id);setMode('plan');}}>＋ 新增光源</button><button disabled={locked||!props.canUndo||props.busy} onClick={props.onUndo}>復原上一步</button></>}/>
     {mode==='walk'&&!!scene.viewpoints.length&&<label className="lighting-preview-eye">預覽位置<select value={viewId} onChange={e=>setViewId(e.target.value)}>{scene.viewpoints.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>}
     {mode==='walk'&&<div className="lighting-preview-explanation" role="note"><label className="inline-check"><input type="checkbox" checked={softLighting} onChange={e=>setSoftLighting(e.target.checked)}/>柔和光影預覽</label><p>{softLighting?'以近似反射光提亮暗部，優先為選取的面光源分散光線與陰影；關閉可對照原直接光。':'目前只顯示直接光，背光面可能偏黑。'} 只影響操作畫面，不修改燈光或出圖設定。</p><button onClick={()=>setExplain(v=>!v)} aria-expanded={explain}>預覽與成圖的差異</button>{explain&&<p>柔和預覽依有效燈光估算環境補光，沒有追蹤隔間反射，因此隔壁房間也可能偏亮。最多兩盞面光源使用四點取樣近似柔影；仍非 Cycles 的完整間接光，請以低解析出圖確認實際效果。</p>}</div>}
     <div className="space-editor-grid"><div>

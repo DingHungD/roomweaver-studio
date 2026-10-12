@@ -2,7 +2,7 @@
 import math
 import hashlib
 import bpy
-from mathutils import Vector
+from mathutils import Vector, Matrix, Euler
 
 
 def restore_world(source):
@@ -91,6 +91,9 @@ def apply(design, source=None):
         if data.type=='SPOT':data.spot_size=math.radians(spec['angle']);data.spot_blend=spec.get('spot_blend',.5)
         if data.type=='SUN':data.angle=spec.get('sun_angle',.00918)
         obj=bpy.data.objects.new('Studio '+spec['id'],data);scene.collection.objects.link(obj)
-        obj.location=Vector(spec['position'])+Vector(group.get('translation',[0,0,0]) if group else [0,0,0])
-        obj.rotation_euler=spec['rotation'];obj['studio_light_id']=spec['id']
+        angle=math.radians(group.get('rotation',0)) if group else 0
+        pivot=Vector(group.get('rotation_pivot',[0,0,0]) if group else [0,0,0])
+        rotation=Matrix.Rotation(angle,3,'Z')
+        obj.location=rotation@(Vector(spec['position'])-pivot)+pivot+Vector(group.get('translation',[0,0,0]) if group else [0,0,0])
+        obj.rotation_euler=(rotation@Euler(spec['rotation'],'XYZ').to_matrix()).to_euler();obj['studio_light_id']=spec['id']
     bpy.context.view_layer.update()

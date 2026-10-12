@@ -1,11 +1,11 @@
 import * as THREE from 'three';
 import type {Scene,StudioLight} from './api';
-import {lightPosition} from './lightGeometry.ts';
+import {lightPosition,lightRotation} from './lightGeometry.ts';
 import {eyeVector} from './viewpointGeometry.ts';
 
 // Blender uses Z-up and local -Z for light emission; the viewer uses Y-up.
 export function lightDirection(spec:StudioLight){
-  const v=new THREE.Vector3(0,0,-1).applyEuler(new THREE.Euler(...spec.rotation,'XYZ'));
+  const v=new THREE.Vector3(0,0,-1).applyEuler(new THREE.Euler(...spec.rotation,'ZYX'));
   return new THREE.Vector3(v.x,v.z,-v.y).normalize();
 }
 export function previewSpecs(scene:Scene,selected:string){
@@ -24,7 +24,7 @@ export type PreviewOptions={soften?:boolean;floorArea?:number};
 
 /** Finite emitter samples: conserve total power while spreading shadow edges. */
 export function areaSamples(spec:StudioLight){
-  const rotation=new THREE.Euler(...spec.rotation,'XYZ');
+  const rotation=new THREE.Euler(...spec.rotation,'ZYX');
   return [[-1,-1],[1,-1],[-1,1],[1,1]].map(([x,y])=>{
     const v=new THREE.Vector3(x*spec.size*.25,y*spec.size*.25,0).applyEuler(rotation);
     return new THREE.Vector3(v.x,v.z,-v.y);
@@ -34,7 +34,8 @@ export function areaSamples(spec:StudioLight){
 export function buildPreview(root:THREE.Group,scene:Scene,selected:string,options:PreviewOptions={}){
   clearPreview(root);
   const specs=previewSpecs(scene,selected);let shadowCount=0,softAreas=0;
-  for(const spec of specs){
+  for(const original of specs){
+    const spec={...original,rotation:lightRotation(original,scene)};
     const color=new THREE.Color().setRGB(...spec.color),pos=eyeVector(lightPosition(spec,scene));
     const spread=options.soften&&spec.kind==='AREA'&&softAreas<2;
     if(spread)softAreas++;
@@ -66,7 +67,7 @@ export function buildPreview(root:THREE.Group,scene:Scene,selected:string,option
     const pos=eyeVector(lightPosition(spec,scene));
     const marker=new THREE.Mesh(new THREE.SphereGeometry(spec.id===selected ? .11 : .07,10,8),new THREE.MeshBasicMaterial({color:spec.id===selected?'#ffc83e':spec.enabled?'#fff3b1':'#8c938a',wireframe:true}));
     marker.position.copy(pos);marker.userData.lightId=spec.id;root.add(marker);
-    if(spec.id===selected)root.add(new THREE.ArrowHelper(lightDirection(spec),pos,.65,0xffc83e,.15,.08));
+    if(spec.id===selected)root.add(new THREE.ArrowHelper(lightDirection({...spec,rotation:lightRotation(spec,scene)}),pos,.65,0xffc83e,.15,.08));
   }
   if(scene.lighting_setup?.enabled&&scene.lighting_setup.mode==='day')root.add(new THREE.HemisphereLight(0xccdfff,0x494c40,.25));
 }
