@@ -76,7 +76,7 @@ class CodexRuntime:
         return {'version': self.version, 'authenticated': bool(account.get('account')),
             'auth_type': (account.get('account') or {}).get('type'), 'models': models.get('data', [])}
 
-    def run(self, prompt, *, model=None, image=None, mcp=None, timeout=180, on_event=None):
+    def run(self, prompt, *, model=None, image=None, images=None, mcp=None, timeout=180, on_event=None):
         # Override inherited MCP servers per thread; never mutate global user config.
         effective = self.request('config/read', {'includeLayers': False}).get('config', {})
         config = {'features.shell_tool': False, 'features.unified_exec': False,
@@ -94,6 +94,8 @@ class CodexRuntime:
         inputs = [{'type': 'text', 'text': prompt}]
         if image:
             inputs.append({'type': 'localImage', 'path': str(Path(image).resolve())})
+        for path in images or []:
+            inputs.append({'type': 'localImage', 'path': str(Path(path).resolve())})
         turn = self.request('turn/start', {'threadId': self.thread_id, 'input': inputs})
         self.turn_id = turn['turn']['id']
         messages = []

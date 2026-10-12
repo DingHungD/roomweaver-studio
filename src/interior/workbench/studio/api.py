@@ -44,6 +44,117 @@ def install(app, store, jobs):
     app.state.studio_coordinator=coordinator
     app.state.studio_agents=agents
     jobs.close_callbacks.extend([agents.close,coordinator.close])
+    from .plan_import import PlanIntake, SavePlan, BuildPlan, RectifyPlan
+    plans=PlanIntake(studio)
+    from .image_evidence import EvidenceRefinement, FeedbackInput
+    from .image_plan import ImageIntake, RecognizeImage
+    images=ImageIntake(studio,agents)
+    from .layout_design import LayoutDesign, LayoutRequest, AdoptLayout, LayoutBrief, ReviseLayout, LayoutAnswers
+    layouts=LayoutDesign(studio,agents)
+    from .models import ConceptFurniture
+
+    @app.get('/api/studio/concept-furniture')
+    def concept_catalog():
+        from ...visualization.concept_geometry import CATALOG
+        return CATALOG
+
+    @app.post('/api/studio/concept-furniture')
+    def concept_preview(body:ConceptFurniture):return body.model_dump(mode='json')
+
+    @app.get('/api/studio/projects/{project_id}/plans/{plan_id}/layout/brief')
+    def layout_brief(project_id:str,plan_id:str):return layouts.brief(project_id,plan_id)
+
+    @app.put('/api/studio/projects/{project_id}/plans/{plan_id}/layout/brief')
+    def save_layout_brief(project_id:str,plan_id:str,body:LayoutBrief):return layouts.save_brief(project_id,plan_id,body)
+
+    @app.get('/api/studio/projects/{project_id}/plans/{plan_id}/layout/current')
+    def current_layout(project_id:str,plan_id:str):
+        return layouts.current(project_id,plan_id)
+
+    @app.post('/api/studio/projects/{project_id}/plans/{plan_id}/layout')
+    def start_layout(project_id:str,plan_id:str,body:LayoutRequest):
+        return layouts.start(project_id,plan_id,body)
+
+    @app.get('/api/studio/projects/{project_id}/plans/{plan_id}/layout/{identifier}')
+    def get_layout(project_id:str,plan_id:str,identifier:str):
+        return layouts.get(project_id,plan_id,identifier)
+
+    @app.post('/api/studio/projects/{project_id}/plans/{plan_id}/layout/{identifier}/adopt')
+    def adopt_layout(project_id:str,plan_id:str,identifier:str,body:AdoptLayout):
+        return layouts.adopt(project_id,plan_id,identifier,body)
+
+    @app.post('/api/studio/projects/{project_id}/plans/{plan_id}/layout/{identifier}/revise')
+    def revise_layout(project_id:str,plan_id:str,identifier:str,body:ReviseLayout):
+        return layouts.revise(project_id,plan_id,identifier,body)
+
+    @app.get('/api/studio/projects/{project_id}/plans/{plan_id}/layout/{identifier}/answers')
+    def layout_answers(project_id:str,plan_id:str,identifier:str):
+        return layouts.answers(project_id,plan_id,identifier)
+
+    @app.put('/api/studio/projects/{project_id}/plans/{plan_id}/layout/{identifier}/answers')
+    def save_layout_answers(project_id:str,plan_id:str,identifier:str,body:LayoutAnswers):
+        return layouts.save_answers(project_id,plan_id,identifier,body)
+
+    @app.post('/api/studio/projects/{project_id}/plans/{plan_id}/layout/{identifier}/stop')
+    def stop_layout(project_id:str,plan_id:str,identifier:str):
+        layouts.get(project_id,plan_id,identifier)
+        agents.stop(identifier)
+        return layouts.get(project_id,plan_id,identifier)
+
+    @app.post('/api/studio/projects/{project_id}/image-plans/upload')
+    async def upload_image_plan(project_id:str,file:UploadFile=File(...)):
+        try:
+            content=await file.read(20_000_001)
+            from starlette.concurrency import run_in_threadpool
+            return await run_in_threadpool(images.upload,project_id,file.filename or '',content)
+        finally:await file.close()
+
+    @app.get('/api/studio/projects/{project_id}/image-plans/current')
+    def current_image_plan(project_id:str):return images.current(project_id)
+
+    @app.get('/api/studio/projects/{project_id}/image-plans/{image_id}')
+    def image_plan(project_id:str,image_id:str):return images.get(project_id,image_id)
+
+    @app.get('/api/studio/projects/{project_id}/image-plans/{image_id}/image')
+    def image_plan_source(project_id:str,image_id:str):
+        return FileResponse(images.folder(project_id,image_id)/'normalized.png',media_type='image/png')
+
+    @app.post('/api/studio/projects/{project_id}/image-plans/{image_id}/recognize')
+    def recognize_image_plan(project_id:str,image_id:str,body:RecognizeImage):return images.start(project_id,image_id,body)
+
+    @app.post('/api/studio/projects/{project_id}/image-plans/{image_id}/draft')
+    def image_plan_draft(project_id:str,image_id:str):return images.draft(project_id,image_id)
+
+    @app.post('/api/studio/projects/{project_id}/image-plans/{image_id}/refine')
+    def refine_image_plan(project_id:str,image_id:str,body:EvidenceRefinement):return images.refine(project_id,image_id,body)
+
+    @app.get('/api/studio/projects/{project_id}/image-plans/{image_id}/feedback')
+    def image_feedback(project_id:str,image_id:str):return images.feedback(project_id,image_id)
+
+    @app.put('/api/studio/projects/{project_id}/image-plans/{image_id}/feedback')
+    def save_image_feedback(project_id:str,image_id:str,body:FeedbackInput):return images.save_feedback(project_id,image_id,body)
+
+    @app.post('/api/studio/projects/{project_id}/plans/upload')
+    async def upload_plan(project_id:str,file:UploadFile=File(...)):
+        try:
+            if Path(file.filename or '').suffix.lower()!='.dxf':raise ValueError('此入口支援 ASCII DXF；PNG／JPG 請使用圖片入口，DWG／SKP 尚未開放')
+            content=await file.read(10_000_001)
+            if len(content)>10_000_000:raise ValueError('DXF 超過 10 MB 上限')
+            from starlette.concurrency import run_in_threadpool
+            return await run_in_threadpool(plans.create,project_id,file.filename,content)
+        finally:await file.close()
+
+    @app.get('/api/studio/projects/{project_id}/plans/current')
+    def current_plan(project_id:str):return plans.current(project_id)
+
+    @app.put('/api/studio/projects/{project_id}/plans/{plan_id}')
+    def save_plan(project_id:str,plan_id:str,body:SavePlan):return plans.save(project_id,plan_id,body)
+
+    @app.post('/api/studio/projects/{project_id}/plans/{plan_id}/rectify')
+    def rectify_plan(project_id:str,plan_id:str,body:RectifyPlan):return plans.rectify(project_id,plan_id,body)
+
+    @app.post('/api/studio/projects/{project_id}/plans/{plan_id}/build')
+    def build_plan(project_id:str,plan_id:str,body:BuildPlan):return plans.build(project_id,plan_id,body)
 
     @app.get('/api/studio/projects')
     def projects():
@@ -88,7 +199,7 @@ def install(app, store, jobs):
         name=file.filename or 'model.glb'
         if Path(name).suffix.lower()!='.glb':
             await file.close()
-            raise ValueError('首輪只支援 GLB 與已登記的 Blender 模型。PNG、CAD、SKP 轉換尚未實作，不會套用示範模型。')
+            raise ValueError('此入口只接受 GLB；DXF 請使用電子平面入口，PNG／JPG 請使用圖片入口。DWG／SKP 尚未開放。')
         content=await file.read(85_000_001)
         await file.close()
         if len(content)>85_000_000 or content[:4]!=b'glTF':

@@ -31,7 +31,7 @@ class AgentTasks:
             client.close()
 
     def start(self,kind,model=None,payload=None,identifier=None):
-        if kind not in ('connection','vision','tool','browser','material'):
+        if kind not in ('connection','vision','tool','browser','material','plan_image','plan_refine','layout_design'):
             raise ValueError('不支援的 Agent 任務')
         identifier=identifier or uuid4().hex
         if (self.root/identifier/'task.json').exists():
@@ -65,11 +65,28 @@ class AgentTasks:
             if not status['authenticated'] or status['auth_type']!='chatgpt':
                 raise ValueError('請先在本機 Codex 完成 ChatGPT 登入；不會切換至付費 API')
             result['runtime']=dict(version=status['version'],auth_type=status['auth_type'])
+            def progress(phase):
+                with self.lock:
+                    if self.get(result['id'])['status']=='stopping':
+                        raise RuntimeError('辨識已要求停止')
+                    result['phase']=phase
+                    write_json(directory/'task.json',result)
             kind=result['kind']
             image=None
             mcp=None
             if kind=='connection':
                 prompt='只回覆 STUDIO_READY。'
+            elif kind=='layout_design':
+                if not any(m['id']==result['model'] for m in status['models']):raise ValueError('請選擇目前帳號可用的配置模型')
+                prompt=''
+            elif kind in ('plan_image','plan_refine'):
+                from ..studio.image_plan import recognition_prompt
+                available=next((m for m in status['models'] if m['id']==result['model']),None)
+                if not available or 'image' not in available.get('inputModalities',[]):
+                    raise ValueError('請選擇目前帳號可用且支援圖片的模型')
+                image=Path(payload['image'])
+                prompt=recognition_prompt(payload)
+                progress('整圖盤點：牆、門窗、設備與尺寸')
             elif kind=='vision':
                 image=directory/'vision.png'
                 canvas=Image.new('RGB',(400,300),'white')
@@ -96,10 +113,43 @@ class AgentTasks:
                 if packet.get('method') in ('item/completed','turn/completed','error'):
                     with (directory/'events.jsonl').open('a',encoding='utf-8') as stream:
                         stream.write(json.dumps(packet,ensure_ascii=False)+'\n')
-            response=client.run(prompt,model=result['model'],image=image,mcp=mcp,timeout=240,on_event=event)
-            result['response']=response
-            if kind=='connection':
+            if kind=='layout_design':
+                from ..studio.layout_design import run_layout
+                result.update(run_layout(client,directory,payload,result['model'],progress,event))
+                passed=True  # task completed; layout_report independently gates adoption
+            elif kind=='plan_refine':
+                from ..studio.image_evidence import run_refinement
+                result.update(run_refinement(client,directory,payload,result['model'],progress,event))
+                passed=True
+            else:
+                response=client.run(prompt,model=result['model'],image=image,mcp=mcp,timeout=600 if kind=='plan_image' else 240,on_event=event)
+                result['response']=response
+            if kind in ('plan_refine','layout_design'):
+                pass
+            elif kind=='connection':
                 passed=response['text'].strip()=='STUDIO_READY'
+            elif kind=='plan_image':
+                from ..studio.image_plan import validate_recognition
+                from ..studio.image_review import review_images, review_prompt, prepare_review
+                validation_error=None
+                try:
+                    candidate=validate_recognition(response['text'],payload['width'],payload['height'])
+                except ValueError as exc:
+                    candidate=response['text']
+                    validation_error=str(exc)
+                result['passes']=[dict(stage='inventory',response=response,candidate=candidate,validation_error=validation_error)]
+                progress('局部放大複核：補漏、量測端點與疑點整理')
+                crops,manifest=review_images(image,directory)
+                write_json(directory/'review-crops.json',manifest)
+                response=client.run(review_prompt(payload,candidate,manifest,validation_error),model=result['model'],image=image,images=crops,timeout=600,on_event=event)
+                result['response']=response
+                candidate=validate_recognition(response['text'],payload['width'],payload['height'])
+                result['passes'].append(dict(stage='review',response=response,candidate=candidate))
+                result['candidate']=candidate
+                result['review_complete']=True
+                _,result['audit'],_=prepare_review(candidate,payload['width'],payload['height'],reviewed=True)
+                result['phase']='已完成放大複核與安全範圍內的自動修正'
+                passed=True  # schema only; user review and geometry checks are separate
             elif kind=='vision':
                 text=response['text'].lower()
                 passed=all(word in text for word in ('red','square','blue','circle'))
@@ -137,6 +187,8 @@ class AgentTasks:
                     result['status']='stopped'
                 result['finished_at']=now()
                 write_json(directory/'task.json',result)
+                if result['kind'] in ('plan_image','plan_refine','layout_design') and payload.get('result_path'):
+                    write_json(Path(payload['result_path']),result)
             self.slots.release()
 
     def stop(self,identifier):

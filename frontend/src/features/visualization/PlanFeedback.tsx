@@ -1,0 +1,38 @@
+import {useEffect,useRef,useState} from 'react';
+import {api} from './api';
+import type {Plan} from './PlanImport';
+type Evidence={id:string;source:string;text:string;question_ids:string[];resolves:string[];dimensions:{dimension_id:string;text:string;metres:number}[]};
+type Saved={id:string;base_revision:string;evidence:Evidence[]};
+type Intake={id:string;task?:{status:string;phase?:string;error?:string};plan?:Plan};
+export default function PlanFeedback({project,plan,dirty,onReady,onWorking}:{project:string;plan:Plan;dirty:boolean;onReady:(p:Plan)=>void;onWorking:(b:boolean)=>void}){
+  const [records,setRecords]=useState<Evidence[]>([]),[saved,setSaved]=useState<Saved|null>(null),[models,setModels]=useState<{id:string;displayName:string}[]>([]),[model,setModel]=useState('');
+  const [task,setTask]=useState<Intake|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[changed,setChanged]=useState(false);const lock=useRef(false);
+  const endpoint=`/projects/${project}/image-plans/${plan.id}`,waiting=!!task&&['queued','running','stopping'].includes(task.task?.status||'');
+  const draftKey='roomweaver-feedback-'+endpoint;
+  useEffect(()=>{let alive=true;setRecords([]);setSaved(null);setTask(null);setChanged(false);void api<Saved|null>(endpoint+'/feedback').then(v=>{if(alive){setSaved(v);setRecords(v?.evidence||[]);try{const raw=localStorage.getItem(draftKey);const d=raw?JSON.parse(raw):null;if(d&&d.base_revision===plan.revision&&d.base_feedback_id===(v?.id||null)){setRecords(d.evidence);setChanged(true);}else if(d)setError('另有舊版未提交草稿，不能覆蓋目前確認紀錄；請先核對目前版本。');}catch{/* Saved server evidence remains available. */}}}).catch(e=>setError(e.message));return()=>{alive=false;};},[endpoint]);
+  useEffect(()=>{onWorking(busy||waiting);return()=>onWorking(false);},[busy,waiting]);
+  useEffect(()=>{if(!task||!waiting)return;let active=true;const t=setInterval(()=>{void api<Intake>(`/projects/${project}/image-plans/${task.id}`).then(v=>{if(active)setTask(v);}).catch(e=>setError(e.message));},2000);return()=>{active=false;clearInterval(t);};},[task?.id,waiting,project]);
+  async function work(fn:()=>Promise<void>){if(lock.current)return;lock.current=true;setBusy(true);setError('');try{await fn();}catch(e){setError((e as Error).message);}finally{setBusy(false);lock.current=false;}}
+  function change(next:Evidence[]){setRecords(next);setChanged(true);try{localStorage.setItem(draftKey,JSON.stringify({base_revision:plan.revision,base_feedback_id:saved?.id||null,evidence:next}));}catch{setError('瀏覽器無法暫存，請先保存確認紀錄再離開。');}}
+  function patch(index:number,value:Partial<Evidence>){change(records.map((r,i)=>i===index?{...r,...value}:r));}
+  const questions=plan.parsed.questions||[],dimensions=plan.parsed.dimensions||[];
+  function fromAnswers(){const extra:Evidence[]=[];for(const n of plan.settings.question_notes||[]){const marks=(plan.settings.source_marks||[]).filter(m=>m.question_id===n.question_id);if(!n.answer.trim()&&!marks.length)continue;
+    extra.push({id:'answer-'+crypto.randomUUID().slice(0,8),source:'本版原圖答覆與A→B標記',text:[n.answer,...marks.map(m=>`原圖像素 A=${m.start.join(',')} B=${m.end.join(',')}；${m.description||'端點意義尚未說明，不可推測'}`)].join('\n'),question_ids:[n.question_id],resolves:[],dimensions:[]});}change([...records,...extra].slice(0,30));}
+  return <details className="layout-context" open><summary>確認紀錄與答覆後修正</summary><p>輸入本案的確認來源與原文，選擇對應疑點。先保存原圖答覆，再帶入 A→B；像素長度不是實测尺寸。Agent 只提出新版供核對，不會直接建模。</p>
+    <fieldset disabled={busy||waiting} style={{border:0,padding:0}}>
+      {records.map((r,i)=><article className="layout-context" key={r.id}><label>紀錄來源<input value={r.source} maxLength={1000} onChange={e=>patch(i,{source:e.target.value})} placeholder="例如：本次現場量測／業主確認日期"/></label><label>確認原文<textarea value={r.text} maxLength={6000} onChange={e=>patch(i,{text:e.target.value})}/></label>
+        <label>對應疑點<select multiple size={Math.min(5,Math.max(2,questions.length))} value={r.question_ids} onChange={e=>{const ids=Array.from(e.target.selectedOptions,o=>o.value);patch(i,{question_ids:ids,resolves:r.resolves.filter(id=>ids.includes(id))});}}>{questions.map(q=><option key={q.id} value={q.id}>{q.text}</option>)}</select></label>
+        <label><input type="checkbox" checked={r.question_ids.length>0&&r.resolves.length===r.question_ids.length} onChange={e=>patch(i,{resolves:e.target.checked?r.question_ids:[]})}/>此紀錄完整回答所選疑點（只確認部分時不要勾）</label>
+        {!!dimensions.length&&<><label>明確確認的尺寸數字（選填）<select value={r.dimensions[0]?.dimension_id||''} onChange={e=>{const d=dimensions.find(d=>d.id===e.target.value);patch(i,{dimensions:d?[{dimension_id:d.id,text:d.text,metres:d.metres||1}]:[]});}}><option value="">未確認新數值</option>{dimensions.map(d=><option key={d.id} value={d.id}>{d.text}</option>)}</select></label>{!!r.dimensions.length&&<label>確認長度（公尺）<input type="number" min={.01} max={100} step={.001} value={r.dimensions[0].metres} onChange={e=>patch(i,{dimensions:[{...r.dimensions[0],metres:Number(e.target.value),text:`${e.target.value} m（使用者確認）`}]})}/></label>}</>}
+        <button type="button" onClick={()=>change(records.filter((_,j)=>i!==j))}>移除此未提交紀錄</button></article>)}
+      <div className="plan-actions"><button type="button" disabled={records.length>=30} onClick={()=>change([...records,{id:'e-'+crypto.randomUUID().slice(0,8),source:'使用者確認',text:'',question_ids:[],resolves:[],dimensions:[]}])}>＋ 新增確認紀錄</button><button type="button" disabled={dirty} onClick={fromAnswers}>帶入已保存的原圖答覆與 A→B</button>
+        <button type="button" disabled={dirty||(!changed&&saved?.base_revision===plan.revision)} onClick={()=>work(async()=>{const v=await api<Saved>(endpoint+'/feedback','PUT',{base_revision:plan.revision,base_feedback_id:saved?.id||null,evidence:records});setSaved(v);setChanged(false);try{localStorage.removeItem(draftKey);}catch{}})}>保存確認紀錄</button></div>
+      <button type="button" onClick={()=>work(async()=>{const c=await api<{authenticated:boolean;models:{id:string;displayName:string;inputModalities?:string[]}[]}>('/agent/status');if(!c.authenticated)throw Error('請先登入本機 Codex');const m=c.models.filter(m=>m.inputModalities?.includes('image'));setModels(m);setModel(m[0]?.id||'');})}>連接修正 Agent</button><label>修正模型<select value={model} onChange={e=>setModel(e.target.value)}><option value="">先連接 Agent</option>{models.map(m=><option key={m.id} value={m.id}>{m.displayName}</option>)}</select></label>
+      <p>{dirty?'請先保存平面及原圖答覆。':changed?'請先保存確認紀錄。':saved&&saved.base_revision!==plan.revision?'平面已更新，請核對並再次保存確認紀錄。':'確認紀錄將與原圖送給所選模型，使用訂閱額度。'}</p>
+      <button type="button" className="primary" disabled={dirty||changed||!model||!saved?.evidence.length||saved.base_revision!==plan.revision} onClick={()=>work(async()=>setTask(await api<Intake>(endpoint+'/refine','POST',{base_revision:plan.revision,model,evidence:saved!.evidence,retry_of:task&&['failed','stopped','interrupted'].includes(task.task?.status||'')?task.id:null})))}>依確認紀錄修正，產生新版預覽</button>
+    </fieldset>
+    {waiting&&<p role="status">{task?.task?.phase||'等待 Agent 修正…'}<button type="button" onClick={()=>work(async()=>{const r=await api<Intake & {task_id:string}>(`/projects/${project}/image-plans/${task!.id}`);await api(`/agent/tasks/${r.task_id}/stop`,'POST');})}>停止修正</button></p>}
+    {task?.task?.status==='passed'&&<button type="button" className="primary" disabled={dirty||busy} onClick={()=>work(async()=>onReady(await api<Plan>(`/projects/${project}/image-plans/${task.id}/draft`,'POST')))}>開啟修正版，核對變更 →</button>}
+    {(error||task?.task?.error)&&<p role="alert">{error||task?.task?.error}</p>}
+  </details>;
+}

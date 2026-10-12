@@ -22,15 +22,31 @@ def execute(project, operation, parameters):
         raise ValueError('磁碟可用空間少於 6 GB；尚未開始渲染')
     if operation == 'studio.prepare':
         source = parameters['source']
-        native = (root/source['native']).resolve()
-        preview = (root/source['preview']).resolve()
+        if source.get('plan'):
+            from .plan_import import check_plan
+            plan_path=(root/source['plan']).resolve()
+            if not plan_path.is_relative_to(root) or digest(plan_path)!=source['plan_sha256']:
+                raise ValueError('平面修訂來源已變動')
+            packet=read_json(plan_path)
+            native=(root/packet['source']['path']).resolve()
+            if not native.is_relative_to(root) or digest(native)!=packet['source']['sha256']:
+                raise ValueError('原始圖面已變動')
+            plan=check_plan(packet['parsed'],packet['settings'])
+            if plan['status']!='ready':raise ValueError('平面檢查未通過')
+            preview=output/'source.glb'
+            write_json(output/'confirmed-plan.json',packet)
+        else:
+            native = (root/source['native']).resolve()
+            preview = (root/source['preview']).resolve()
         if not native.is_relative_to(root) or not preview.is_relative_to(root):
             raise ValueError('來源必須位於本案')
         actual = digest(native)
+        preview_actual=digest(preview) if not source.get('plan') else None
         if source.get('sha256') and source['sha256'] != actual:
             raise ValueError('原模型雜湊不符')
         request = dict(mode='prepare', source=str(native), preview=str(preview), source_sha256=actual,
             output=str(output), model_id=parameters['job_id'])
+        if source.get('plan'):request['plan']=plan
     else:
         revision = read_json(root/'workflows/interior-studio/revisions'/f"{parameters['revision']}.json")
         scene = revision['scene']
@@ -93,9 +109,15 @@ def execute(project, operation, parameters):
         model['native_sha256'] = digest(output/'model.blend')
         model['preview_sha256'] = digest(output/'model.glb')
         write_json(output/'model.json', model)
+        from .handoff import validate_package
+        handoff=validate_package(output,persist=True)
         if digest(native) != actual:
             raise ValueError('原件完整性核對失敗')
-        return dict(model_id=parameters['job_id'], object_count=len(model['objects']), source_preserved=True)
+        if preview_actual and digest(preview)!=preview_actual:
+            raise ValueError('預覽來源在交接期間變動，請重新匯入')
+        if source.get('plan') and digest(plan_path)!=source['plan_sha256']:
+            raise ValueError('平面修訂在交接期間變動')
+        return dict(model_id=parameters['job_id'], object_count=len(model['objects']), source_preserved=True,handoff=handoff)
     result=read_json(output/'result.json')
     if operation=='studio.lighting':
         from .models import LightingSetup

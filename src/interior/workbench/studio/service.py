@@ -67,7 +67,9 @@ class Studio:
         model = self.model(project_id, scene['model_id'])
         if not scene['groups']:
             scene['groups']=self.groups(project_id,scene['model_id'])
-        if {x['id'] for x in scene['objects']} != {x['id'] for x in model['objects']}:
+        extra={p['id'] for f in scene['concept_furniture'] for p in f['parts']}
+        if extra & {x['id'] for x in model['objects']}:raise ValueError('新增家具與原模型識別碼衝突')
+        if {x['id'] for x in scene['objects']} != {x['id'] for x in model['objects']} | extra:
             raise ValueError('場景物件必須與匯入模型一致')
         with self.store.lock:
             if self.current(project_id)['revision'] != base_revision:
@@ -107,8 +109,15 @@ class Studio:
             return current
         source = read_json(self.store.state_dir/'jobs'/job_id/'request.json')['parameters']['source']
         model = self.model(project_id, job['id'])
+        from .handoff import validate_package
+        validate_package(self.root(project_id)/job['output'])
+        notes=[]
+        if source.get('plan'):
+            packet=read_json(self.root(project_id)/source['plan'])
+            notes=(packet['settings'].get('layout_adoption') or {}).get('remaining_issues',[])
         return self.save(project_id, dict(model_id=job['id'], rooms=source['rooms'],
-            objects=[dict(id=o['id'], name=o['name'], room_id=None, material={}) for o in model['objects']],
+            design_notes=notes,
+            objects=[dict(id=o['id'], name=o['name'], room_id=o.get('room_id') if o.get('room_id') in {r['id'] for r in source['rooms']} else None, material={}) for o in model['objects']],
             viewpoints=source['viewpoints'], links=source['links']), base_revision)
 
     def outputs(self, project_id, include_deleted=False):

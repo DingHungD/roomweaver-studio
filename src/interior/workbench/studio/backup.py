@@ -23,11 +23,15 @@ def create_backup(studio,coordinator):
         projects=[]
         for project in studio.store.projects():
             folder=studio.folder(project['id'])
-            if folder.exists():
-                shutil.copytree(folder,output/'projects'/project['id'])
-                projects.append(dict(id=project['id'],revision=studio.current(project['id'])['revision']))
+            parts=[]
+            for name in ('interior-studio','plan-import'):
+                source=folder.parent/name
+                if source.exists():
+                    shutil.copytree(source,output/'projects'/project['id']/name)
+                    parts.append(name)
+            if parts:projects.append(dict(id=project['id'],revision=studio.current(project['id'])['revision'],parts=parts))
         hashes={p.relative_to(output).as_posix():digest(p) for p in output.rglob('*') if p.is_file()}
-        write_json(output/'manifest.json',dict(projects=projects,sha256=hashes,large_files='Case runs and sources require separate backup',format=1))
+        write_json(output/'manifest.json',dict(projects=projects,sha256=hashes,large_files='Case runs and sources require separate backup',format=2))
         # Only timestamp folders created here are eligible, never upgrade snapshots.
         snapshots=sorted(p for p in root.iterdir() if p.is_dir() and len(p.name)==22 and p.name.endswith('Z'))
         for old in snapshots[:-7]:
@@ -43,7 +47,7 @@ def restore_backup(store,backup):
     try:
         root=Path(backup).resolve()
         manifest=read_json(root/'manifest.json')
-        if manifest.get('format')!=1 or not manifest.get('sha256'):
+        if manifest.get('format') not in (1,2) or not manifest.get('sha256'):
             raise ValueError('備份格式不符或缺少完整性清單')
         for name,expected in manifest['sha256'].items():
             path=(root/name).resolve()
@@ -59,9 +63,13 @@ def restore_backup(store,backup):
         for item in manifest['projects']:
             # Resolve through registered cases; backup input cannot choose arbitrary destinations.
             project=store.project(item['id'])
-            source=root/'projects'/item['id']
-            if not source.resolve().is_relative_to(root) or not source.is_dir():raise ValueError('案件備份缺失')
-            targets.append((source,project.root/'workflows/interior-studio'))
+            parts=item.get('parts',[]) if manifest['format']==2 else ['interior-studio']
+            if not parts or any(part not in ('interior-studio','plan-import') for part in parts):raise ValueError('案件備份種類無效')
+            for part in parts:
+                source=root/'projects'/item['id']
+                if manifest['format']==2:source=source/part
+                if not source.resolve().is_relative_to(root) or not source.is_dir():raise ValueError('案件備份缺失')
+                targets.append((source,project.root/'workflows'/part))
         safety=store.state_dir/'backups'/('pre-restore-'+datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ'))
         safety.mkdir(parents=True)
         for name in ('jobs.sqlite3','agent-checkpoints.sqlite3'):
@@ -75,7 +83,7 @@ def restore_backup(store,backup):
             try:source.backup(target)
             finally:source.close();target.close()
         for source,target in targets:
-            if target.exists():shutil.copytree(target,safety/'projects'/target.parents[1].name)
+            if target.exists():shutil.copytree(target,safety/'projects'/target.parents[1].name/target.name)
             # Keep newer immutable revisions; only restore the selected current pointer and settings.
             shutil.copytree(source,target,dirs_exist_ok=True)
         return dict(status='restored',safety_snapshot=str(safety),automatic_jobs_submitted=0)

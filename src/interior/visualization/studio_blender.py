@@ -10,11 +10,16 @@ import struct
 import sys
 from uuid import UUID, uuid5
 import bpy
-from mathutils import Vector
+from mathutils import Vector, Matrix, Quaternion
 
 request = json.loads(Path(sys.argv[sys.argv.index('--')+1]).read_text(encoding='utf-8'))
 output = Path(request['output'])
-if Path(request['source']).suffix.lower()=='.glb':
+sys.path.insert(0,str(Path(__file__).resolve().parent))
+if request.get('plan'):
+    from plan_blender import build_plan
+    build_report=build_plan(request)
+    (output/'plan-build.json').write_text(json.dumps(build_report,ensure_ascii=False,indent=2),encoding='utf-8')
+elif Path(request['source']).suffix.lower()=='.glb':
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=request['source'])
 else:
@@ -41,10 +46,11 @@ def geometry_digest():
 if request['mode'] == 'prepare':
     namespace = UUID(request['source_sha256'][:32])
     objects=[]
+    bpy.context.view_layer.update()
     for obj in bpy.data.objects:
         if obj.type in ('MESH', 'CURVE'):
             obj['studio_id']=obj.get('studio_id') or uuid5(namespace,obj.name).hex
-            objects.append(dict(id=obj['studio_id'],name=obj.name,
+            objects.append(dict(id=obj['studio_id'],name=obj.name,room_id=obj.get('room_id'),
                 center=list(obj.matrix_world.translation),materials=[m.name if m else None for m in obj.data.materials]))
     # Preserve the optimized display geometry, adding explicit native IDs to its nodes.
     # Unknown display meshes fail import rather than silently selecting a wrong object.
@@ -70,13 +76,57 @@ if request['mode'] == 'prepare':
             mapped.add(identifier)
     if unknown:
         raise ValueError('GLB objects lack native mapping: '+repr(unknown[:20]))
+    # Compare transformed mesh bounds in metres after the glTF Y-up / Blender
+    # Z-up conversion. ID matching alone cannot detect mismatched model pairs.
+    nodes=gltf.get('nodes',[])
+    parents={}
+    for i,n in enumerate(nodes):
+        for child in n.get('children',[]):
+            if child in parents or not 0<=child<len(nodes):raise ValueError('GLB hierarchy is not a tree')
+            parents[child]=i
+    cache={}
+    def world(index,visited=None):
+        if index in cache:return cache[index]
+        visited=set() if visited is None else visited
+        if index in visited:raise ValueError('GLB hierarchy cycle')
+        visited.add(index);node=nodes[index]
+        if 'matrix' in node:
+            m=node['matrix'];local=Matrix([m[i::4] for i in range(4)])
+        else:
+            q=node.get('rotation',[0,0,0,1]);s=node.get('scale',[1,1,1])
+            local=Matrix.LocRotScale(Vector(node.get('translation',[0,0,0])),Quaternion((q[3],q[0],q[1],q[2])),Vector(s))
+        cache[index]=world(parents[index],visited)@local if index in parents else local
+        return cache[index]
+    convert=Matrix(((1,0,0,0),(0,0,-1,0),(0,1,0,0),(0,0,0,1)))
+    native_by_id={o.get('studio_id'):o for o in bpy.data.objects if o.type in ('MESH','CURVE')}
+    checked=0
+    for index,node in enumerate(nodes):
+        if 'mesh' not in node:continue
+        corners=[]
+        for primitive in gltf['meshes'][node['mesh']]['primitives']:
+            accessor=gltf['accessors'][primitive['attributes']['POSITION']]
+            if 'min' not in accessor or 'max' not in accessor:raise ValueError('GLB positions lack bounds')
+            for x in (accessor['min'][0],accessor['max'][0]):
+                for y in (accessor['min'][1],accessor['max'][1]):
+                    for z in (accessor['min'][2],accessor['max'][2]):corners.append(convert@world(index)@Vector((x,y,z)))
+        obj=native_by_id[node['extras']['studio_id']]
+        native_corners=[obj.matrix_world@Vector(c) for c in obj.bound_box]
+        if any(not math.isfinite(v) for c in corners+native_corners for v in c):
+            raise ValueError('模型包含非有限幾何座標：'+obj.name)
+        for axis in range(3):
+            lower=min(c[axis] for c in native_corners);upper=max(c[axis] for c in native_corners)
+            tolerance=max(.02,(upper-lower)*.02)
+            if abs(min(c[axis] for c in corners)-lower)>tolerance or abs(max(c[axis] for c in corners)-upper)>tolerance:
+                raise ValueError('GLB／BLEND 尺度或位置不一致：'+obj.name)
+        checked+=1
     payload=json.dumps(gltf,separators=(',',':'),ensure_ascii=False).encode()
     payload+=b' '*((-len(payload))%4)
     rest=raw[20+size:]
     (output/'model.glb').write_bytes(struct.pack('<III',magic,version,20+len(payload)+len(rest))+struct.pack('<II',len(payload),kind)+payload+rest)
     bpy.ops.wm.save_as_mainfile(filepath=str(output/'model.blend'),compress=True)
     write('model.json',dict(id=request['model_id'],source_sha256=request['source_sha256'],
-        objects=objects,selectable_ids=sorted(mapped),geometry_sha256=geometry_digest(),coordinate_system='Blender Z-up metres',render_readiness=inspect_scene(scene)))
+        objects=objects,selectable_ids=sorted(mapped),geometry_sha256=geometry_digest(),coordinate_system='Blender Z-up metres',
+        spatial_check=dict(passed=True,checked_meshes=checked,tolerance='max(0.02 m, 2% axis extent)'),render_readiness=inspect_scene(scene)))
 elif request['mode']=='lighting':
     from studio_lighting import propose
     setup,notes=propose(request['scene'],request.get('lighting_source'))
@@ -85,6 +135,8 @@ elif request['mode']=='lighting':
 else:
     design=request['scene']
     before=geometry_digest()
+    from concept_geometry import add_blender_furniture
+    add_blender_furniture(design.get('concept_furniture',[]))
     by_id={o.get('studio_id'):o for o in bpy.data.objects if o.type in ('MESH','CURVE')}
     # Apply revision edits in world space; never edit the immutable prepared model.
     edited=[]
@@ -216,5 +268,5 @@ else:
     write('progress.json',dict(completed=total,total=total,current='完成'))
     write('result.json',dict(images=images,revision=request['revision'],model_id=request['model_id'],
         applied_object_ids=applied,geometry_preserved=geometry_digest()==before,device=scene.cycles.device,
-        edited_group_ids=edited,material_geometry_preserved=geometry_digest()==after_edits,
+        edited_group_ids=edited,added_concept_ids=[f['id'] for f in design.get('concept_furniture',[])],material_geometry_preserved=geometry_digest()==after_edits,
         visual_review='pending',quality_check='passed'))

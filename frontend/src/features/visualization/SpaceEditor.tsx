@@ -1,4 +1,5 @@
-import {useEffect,useState} from 'react';
+import {useEffect,useRef,useState} from 'react';
+import AddFurniture from './AddFurniture';
 import type {Scene} from './api';
 import {fileUrl} from './api';
 import SpaceViewport from './SpaceViewport';
@@ -8,8 +9,10 @@ export default function SpaceEditor({scene,project,onChange,onCandidate,onContin
   const [mode,setMode]=useState<ViewMode>('plan'),[selected,setSelected]=useState(scene.groups.find(g=>!g.deleted)?.id||''),[child,setChild]=useState(''),[moving,setMoving]=useState(false),[search,setSearch]=useState('');
   const [contrast,setContrast]=useState(false);
   const [showDeleted,setShowDeleted]=useState(false);
+  const latest=useRef(scene);latest.current=scene;
+  const planCenter=useRef<[number,number]>([0,0]);
   useEffect(()=>{if(active){setMode('plan');setChild('');setMoving(false);}},[active]);
-  useEffect(()=>{if(!scene.groups.some(g=>g.id===selected)){setSelected(scene.groups.find(g=>!g.deleted)?.id||'');setChild('');}},[scene.groups,selected]);
+  useEffect(()=>{if(!scene.groups.some(g=>g.id===selected)){setSelected(scene.groups.find(g=>!g.deleted)?.id||'');setChild('');setMoving(false);}},[scene.groups,selected]);
   const group=scene.groups.find(g=>g.id===selected),part=scene.objects.find(o=>o.id===child);
   const groups=scene.groups.filter(g=>(showDeleted||!g.deleted||g.id===selected)&&g.name.toLowerCase().includes(search.toLowerCase()));
   function edit(change:(draft:Scene)=>void){const draft=structuredClone(scene);change(draft);onChange(draft);}
@@ -26,14 +29,16 @@ export default function SpaceEditor({scene,project,onChange,onCandidate,onContin
       <button disabled={!canUndo||busy} onClick={onUndo}>復原上一步</button>
     </div>
     <div className="space-editor-grid">
-      <div>{active&&<SpaceViewport planContrast={contrast} url={fileUrl(project,scene.model_id,'model.glb')} design={scene} mode={mode} selected={selected} child={child} moving={moving} onSelect={select} onInspect={id=>{select(id);setMoving(false);setMode('object');}} onMove={(id,delta)=>edit(s=>{s.groups.find(g=>g.id===id)!.translation=delta;})}/>}
+      <div>{active&&<SpaceViewport onPlanCenter={xy=>{planCenter.current=xy;}} planContrast={contrast} url={fileUrl(project,scene.model_id,'model.glb')} design={scene} mode={mode} selected={selected} child={child} moving={moving} onSelect={select} onInspect={id=>{select(id);setMoving(false);setMode('object');}} onMove={(id,delta)=>edit(s=>{s.groups.find(g=>g.id===id)!.translation=delta;})}/>}
         <div className="space-bottom"><span>{mode==='object'?`${group?.name||''} · 只顯示此單物件`:mode==='plan'?contrast?'輪廓辨識：簡化地板與光影，實際材質不變。':'柔光平面：保留材質、柔和陰影與室內置中；預覽光不影響出圖。':'平面與 3D 共用同一模型，修改後請保存。'}</span><button className="primary" disabled={busy} onClick={onContinue}>設定光影 →</button></div>
       </div>
       <aside className="studio-inspector assembly-inspector">
+        <AddFurniture getCenter={()=>planCenter.current} scene={scene} busy={busy} onAdd={(f,position)=>{const s=structuredClone(latest.current);s.concept_furniture=[...(s.concept_furniture||[]),f];s.groups.push({id:f.id,name:f.name,children:f.parts.map(p=>p.id),translation:position,deleted:false,method:'concept'});s.objects.push(...f.parts.map(p=>({id:p.id,name:p.name,room_id:null,material:{description:'概念家具，尚未選定商品',url:'',color:null,roughness:.7}})));onChange(s);setSelected(f.id);setChild('');setMode('plan');setMoving(true);}}/>
+        {!!scene.design_notes?.length&&<details><summary>概念配置尚待核對（{scene.design_notes.length}）</summary><ul>{scene.design_notes.map((n,i)=><li key={i}>{n}</li>)}</ul></details>}
         <h3>{mode==='object'?'單物件與子物件':'選取單物件'}</h3>
         {mode!=='object'&&<><input aria-label="搜尋單物件" placeholder="搜尋椅子、桌子、牆面…" value={search} onChange={e=>setSearch(e.target.value)}/><select size={6} aria-label="單物件清單" value={selected} onChange={e=>select(e.target.value)}><option value="" disabled>點選畫面或選擇單物件</option>{groups.map(g=><option value={g.id} key={g.id}>{g.deleted?'已刪除 · ':''}{g.name} · {g.children.length} 個組成</option>)}</select><label className="inline-check"><input type="checkbox" checked={showDeleted} onChange={e=>setShowDeleted(e.target.checked)}/>顯示已刪除物件</label></>}
         {!group&&<p>點選平面圖或 3D 中的家具，整張椅子會一起選取。不同椅子各自獨立。</p>}
-        {group&&<><label>單物件名稱<input value={group.name} onChange={e=>edit(s=>{s.groups.find(g=>g.id===group.id)!.name=e.target.value;})}/></label><p className="muted">{group.children.length} 個子物件 · {group.method==='source_id'?'依模型來源分組':group.method==='hierarchy'?'依模型階層分組':group.method==='name_prefix'?'依物件命名分組':'獨立物件，未推測合併'}</p>
+        {group&&<><label>單物件名稱<input value={group.name} onChange={e=>edit(s=>{s.groups.find(g=>g.id===group.id)!.name=e.target.value;})}/></label><p className="muted">{group.children.length} 個子物件 · {group.method==='concept'?'通用概念家具組成':group.method==='source_id'?'依模型來源分組':group.method==='hierarchy'?'依模型階層分組':group.method==='name_prefix'?'依物件命名分組':'獨立物件，未推測合併'}</p>
           <div className="object-actions"><button disabled={group.deleted||mode==='object'} className={moving?'primary':''} aria-pressed={moving} onClick={()=>setMoving(!moving)}>{moving?'結束移動':'移動模式'}</button><button disabled={group.deleted} onClick={inspect}>單物件導覽</button><button className="danger" onClick={()=>{edit(s=>{s.groups.find(g=>g.id===group.id)!.deleted=!group.deleted;});setMoving(false);if(mode==='object')setMode('plan');}}>{group.deleted?'還原物件':'刪除物件'}</button></div>
           {moving&&<><p>拖曳画面彩色軸／平面，或輸入相對匯入位置的位移。</p><div className="coordinates">{['X','Y','Z'].map((label,i)=><label key={label}>{label} 位移（m）<input aria-label={`${label} 位移`} type="number" step="0.1" value={group.translation[i]} onChange={e=>edit(s=>{s.groups.find(g=>g.id===group.id)!.translation[i]=Number(e.target.value);})}/></label>)}</div></>}
           <label>歸屬空間<select value={scene.objects.find(o=>o.id===group.children[0])?.room_id||''} onChange={e=>edit(s=>{s.objects.filter(o=>group.children.includes(o.id)).forEach(o=>o.room_id=e.target.value||null);})}><option value="">待確認</option>{scene.rooms.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select></label>

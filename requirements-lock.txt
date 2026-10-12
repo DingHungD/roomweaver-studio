@@ -73,3 +73,11 @@ uvicorn==0.54.0
 websockets==16.1.1
 xxhash==4.0.1
 zstandard==0.25.0
+
+# DXF importer (tested Python 3.11)
+ezdxf==1.4.3
+fonttools==4.66.1
+numpy==2.4.6
+pyparsing==3.3.3
+
+shapely==2.1.2

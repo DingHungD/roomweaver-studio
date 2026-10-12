@@ -68,7 +68,7 @@ class Store:
             root.mkdir(parents=True, exist_ok=False)
             metadata = dict(id=identifier, name=data['name'], kind=data.get('kind','user'), entries={})
             write_json(root/'project.json', metadata)
-            (root/'README.md').write_text(f"# {data['name']}\n\nOwner: {identifier}. Awaiting GLB import.\n\nOriginal uploads: sources/workbench/. Immutable scene revisions: workflows/interior-studio/.\nBlender jobs and images: runs/interior-studio/. Keep these together with the workspace databases.\n", encoding='utf-8')
+            (root/'README.md').write_text(f"# {data['name']}\n\nOwner: {identifier}. Awaiting GLB or supported 2D DXF import.\n\nOriginal uploads: sources/workbench/. Immutable scene revisions: workflows/interior-studio/.\nDXF interpretation and plan revisions: workflows/plan-import/. Blender jobs and images: runs/interior-studio/.\nKeep these together with the workspace databases. Sources and accepted revisions cannot be reconstructed from images alone.\n", encoding='utf-8')
             return metadata
 
     def upload(self, identifier, name, content):

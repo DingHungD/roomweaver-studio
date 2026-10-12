@@ -12,7 +12,7 @@ license = "MIT"
 license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md", "licenses/*.txt"]
 dependencies = [
   "fastapi==0.142.2", "uvicorn==0.54.0", "pydantic==2.13.5",
-  "python-multipart==0.0.32", "Pillow==12.3.0", "httpx==0.28.1",
+  "python-multipart==0.0.32", "Pillow==12.3.0", "httpx==0.28.1", "ezdxf==1.4.3", "shapely==2.1.2",
   "langgraph==1.2.14", "langgraph-checkpoint-sqlite==3.1.1"
 ]
 

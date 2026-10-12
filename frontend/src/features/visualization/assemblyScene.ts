@@ -16,6 +16,7 @@ export function assemble(root:THREE.Object3D,design:Scene):AssemblyRuntime {
   return {root,groups,parts,bases,materials:[]};
 }
 export function applyDesign(runtime:AssemblyRuntime,design:Scene){
+  syncConcepts(runtime,design);
   for(const group of design.groups||[]){const node=runtime.groups.get(group.id);if(!node)continue;
     const delta=new THREE.Vector3(group.translation[0],group.translation[2],-group.translation[1]);
     node.position.copy(runtime.bases.get(group.id)!).add(delta);node.visible=!group.deleted;
@@ -32,5 +33,23 @@ export function applyDesign(runtime:AssemblyRuntime,design:Scene){
     });
   }
   runtime.root.updateMatrixWorld(true);
+}
+function syncConcepts(runtime:AssemblyRuntime,design:Scene){
+  const wanted=new Set((design.concept_furniture||[]).map(f=>f.id));
+  for(const [id,node] of runtime.groups){if(!node.userData.concept||wanted.has(id))continue;
+    node.traverse(o=>{if(o instanceof THREE.Mesh){runtime.parts.delete(o.userData.studio_id);o.geometry.dispose();const m=o.userData.originalMaterial||o.material;if(m instanceof THREE.Material)m.dispose();}});
+    node.removeFromParent();runtime.groups.delete(id);runtime.bases.delete(id);
+  }
+  for(const f of design.concept_furniture||[]){
+    let group=runtime.groups.get(f.id);
+    const key=JSON.stringify(f.parts);
+    if(group?.userData.concept===key)continue;
+    if(group){group.traverse(o=>{if(o instanceof THREE.Mesh){runtime.parts.delete(o.userData.studio_id);o.geometry.dispose();const m=o.userData.originalMaterial||o.material;if(m instanceof THREE.Material)m.dispose();}});group.removeFromParent();}
+    group=new THREE.Group();group.userData={group_id:f.id,concept:key};runtime.root.add(group);
+    runtime.groups.set(f.id,group);runtime.bases.set(f.id,new THREE.Vector3());
+    for(const p of f.parts){const mesh=new THREE.Mesh(new THREE.BoxGeometry(p.size[0],p.size[2],p.size[1]),new THREE.MeshStandardMaterial({color:new THREE.Color().setRGB(.55,.42,.29),roughness:.7}));
+      mesh.position.set(p.center[0],p.center[2],-p.center[1]);mesh.name=p.name;mesh.userData={studio_id:p.id,role:'furniture'};mesh.castShadow=true;mesh.receiveShadow=true;group.add(mesh);runtime.parts.set(p.id,mesh);
+    }
+  }
 }
 export function visible(object:THREE.Object3D):boolean {let o:THREE.Object3D|null=object;while(o){if(!o.visible)return false;o=o.parent;}return true;}

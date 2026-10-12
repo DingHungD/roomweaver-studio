@@ -79,11 +79,29 @@ class LightingSetup(Strict):
     source_job_id: str | None = Field(default=None,pattern=r'^[a-f0-9]{32}$')
     lights: list[StudioLight] = Field(default_factory=list,max_length=200)
 
+class ConceptFurniture(Strict):
+    id: str = Field(pattern=r'^concept-[a-f0-9]{32}$')
+    name: str = Field(min_length=1,max_length=100)
+    asset: Literal['chair','desk','table','bed','sofa','cabinet','bunk_bed','washer','cooker','television']
+    size: tuple[float,float,float]
+    parts: list[dict] = Field(default_factory=list,max_length=30)
+
+    @model_validator(mode='after')
+    def geometry(self):
+        from ...visualization.concept_geometry import parts
+        expected=parts(self.id,self.asset,self.size)
+        if self.parts and self.parts!=expected:raise ValueError('概念家具組成不符合類型及尺寸')
+        self.parts=expected
+        return self
+
+
 class Scene(Strict):
     model_id: str
     rooms: list[Room] = Field(max_length=100)
     objects: list[ObjectAssignment] = Field(max_length=50000)
     groups: list[ObjectGroup] = Field(default_factory=list, max_length=50000)
+    concept_furniture: list[ConceptFurniture] = Field(default_factory=list,max_length=200)
+    design_notes: list[str] = Field(default_factory=list,max_length=1000)
     viewpoints: list[Viewpoint] = Field(default_factory=list, max_length=100)
     links: list[tuple[str, str]] = Field(default_factory=list, max_length=1000)
     lighting: Literal['existing'] = 'existing'
@@ -91,6 +109,10 @@ class Scene(Strict):
 
     @model_validator(mode='after')
     def references(self):
+        if len({f.id for f in self.concept_furniture})!=len(self.concept_furniture):raise ValueError('新增家具識別碼重複')
+        for item in self.concept_furniture:
+            group=next((g for g in self.groups if g.id==item.id),None)
+            if group is None or set(group.children)!={p['id'] for p in item.parts}:raise ValueError('新增家具必須完整組成單物件')
         for items in (self.rooms, self.objects, self.viewpoints):
             if len({i.id for i in items}) != len(items):
                 raise ValueError('識別碼不可重複')
