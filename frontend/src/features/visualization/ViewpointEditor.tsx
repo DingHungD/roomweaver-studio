@@ -1,3 +1,5 @@
+import {EditorTools,EditorInspector} from './EditorWorkspace';
+import EditorToolbar from './EditorToolbar';
 import {useRef,useState} from 'react';
 import {fileUrl} from './api';
 import type {Scene} from './api';
@@ -12,15 +14,15 @@ export default function ViewpointEditor({scene,project,busy,onChange,onContinue,
   function edit(change:(draft:Scene)=>void){const draft=structuredClone(scene);change(draft);onChange(draft);}
   function select(id:string){setSelected(id);setShotId('');}
   function add(){const id='point-'+crypto.randomUUID().slice(0,8);edit(s=>{const xy=point?[point.eye[0]+.7,point.eye[1]+.7]:center.current;s.viewpoints.push({id,name:`觀看點 ${String(s.viewpoints.length+1).padStart(2,'0')}`,room_id:point?.room_id||s.rooms[0].id,eye:[xy[0],xy[1],point?.eye[2]||1.6],shots:[{id:'direction-1',name:'方向 01',yaw:0,pitch:0,lens:24}]});});select(id);setPreview(false);}
-  return <section className="space-editor viewpoint-editor">
-    <div className="space-navigation" role="tablist" aria-label="觀看點檢視方式">
-      <button role="tab" aria-selected={!preview} onClick={()=>setPreview(false)}>2D 觀看點配置</button>
-      <button role="tab" aria-selected={preview} disabled={!point} onClick={()=>setPreview(true)}>3D 預覽（未渲染）</button>
-      <span>{scene.viewpoints.length} 個觀看點 · {scene.links.length} 組雙向連結</span>
-      <button disabled={!canUndo||busy} onClick={()=>{onUndo();setPreview(false);}}>復原上一步</button>
+  return <section className="space-editor viewpoint-editor"><EditorTools>
+    <EditorToolbar label="觀看點檢視方式" views={<>
+      <button role="tab" aria-selected={!preview} onClick={()=>setPreview(false)}>2D 平面圖</button>
+      <button role="tab" aria-selected={preview} disabled={!point} onClick={()=>setPreview(true)}>3D 畫面</button>
+    </>} actions={<>
       <button disabled={!modelReady||!scene.rooms.length||busy} onClick={add}>＋ 新增觀看點</button>
-    </div>
-    <div className="space-editor-grid">
+      <button disabled={!canUndo||busy} onClick={()=>{onUndo();setPreview(false);}}>復原上一步</button>
+    </>}><span>{scene.viewpoints.length} 個觀看點 · {scene.links.length} 組雙向連結</span></EditorToolbar>
+    </EditorTools><div className="space-editor-grid">
       <div>
         {active&&<SpaceViewport url={fileUrl(project,scene.model_id,'model.glb')} design={scene} mode={preview?'walk':'plan'} selected="" child="" moving={false} onSelect={()=>{}} onMove={()=>{}}
           pointEditing pointId={selected} focusPoint={point} focusShot={shot} previewReset={reset} onPointSelect={select}
@@ -30,7 +32,7 @@ export default function ViewpointEditor({scene,project,busy,onChange,onContinue,
         </div>
         {!scene.viewpoints.length&&<p className="empty-points">先新增觀看點，再拖到想要觀看空間的位置。每點會產生一張 360° 全景。</p>}
       </div>
-      <aside className="studio-inspector assembly-inspector">
+      <EditorInspector>
         <h3>觀看點設定</h3>
         <label>選取觀看點<select aria-label="選取觀看點" value={point?.id||''} onChange={e=>select(e.target.value)}><option value="" disabled>請新增或選取觀看點</option>{scene.viewpoints.map((p,i)=><option key={p.id} value={p.id}>{String(i+1).padStart(2,'0')} · {p.name}</option>)}</select></label>
         {point?<>
@@ -51,7 +53,7 @@ export default function ViewpointEditor({scene,project,busy,onChange,onContinue,
           <button onClick={()=>edit(d=>{const p=d.viewpoints.find(p=>p.id===point.id)!;p.shots.push({id:'shot-'+crypto.randomUUID().slice(0,8),name:`方向 ${String(p.shots.length+1).padStart(2,'0')}`,yaw:0,pitch:0,lens:24});})}>＋ 新增效果圖方向</button>
           <button className="danger" onClick={()=>{edit(d=>{d.viewpoints=d.viewpoints.filter(p=>p.id!==point.id);d.links=d.links.filter(edge=>!edge.includes(point.id));});select(scene.viewpoints.find(p=>p.id!==point.id)?.id||'');setPreview(false);}}>刪除觀看點</button>
         </>:<p>從平面圖選取觀看點，右側即可調整位置、方向與連結。</p>}
-      </aside>
+      </EditorInspector>
     </div>
   </section>;
 }

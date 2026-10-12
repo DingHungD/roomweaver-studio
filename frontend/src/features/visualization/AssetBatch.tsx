@@ -1,3 +1,4 @@
+import type {ReactNode} from 'react';
 import {useEffect,useRef,useState} from 'react';
 import {api} from './api';
 import {syncAssetBatch} from './syncAssetBatch';
@@ -13,7 +14,7 @@ const types:Record<string,string>={chair:'椅子',bed:'床',cabinet:'櫃子',wal
 const defaultStyle=():Style=>({enabled:true,use_global:true,description:'',image_id:null});
 const pending=(s?:string)=>['queued','running','stopping','matching','applying'].includes(s||'');
 
-export default function AssetBatch({project,scene,revision,dirty,model,busy,onSave,onAccept,onInspect}:{project:string;scene:Scene;revision:string|null;dirty:boolean;model:string;busy:boolean;onSave:()=>Promise<string|null|undefined>;onAccept:(r:Revision)=>void;onInspect:(group:string,part:string|null,task:string)=>void}){
+export default function AssetBatch({project,scene,revision,dirty,model,busy,onSave,onAccept,onInspect,toolbar}:{toolbar?:(configure:ReactNode,status:ReactNode)=>ReactNode;project:string;scene:Scene;revision:string|null;dirty:boolean;model:string;busy:boolean;onSave:()=>Promise<string|null|undefined>;onAccept:(r:Revision)=>void;onInspect:(group:string,part:string|null,task:string)=>void}){
   const dialog=useRef<HTMLDialogElement>(null),alive=useRef(true),lock=useRef(false);
   const [items,setItems]=useState<Item[]>([]),[batch,setBatch]=useState<Batch|null>(null),[tab,setTab]=useState<'settings'|'results'>('settings');
   const [settings,setSettings]=useState<Settings>({room_ids:[],categories:[],use_global:true,description:'',image_id:null,overrides:{}});
@@ -32,8 +33,10 @@ export default function AssetBatch({project,scene,revision,dirty,model,busy,onSa
   const count=chosen.reduce((n,g)=>n+(['wall','floor','surface'].includes(settings.overrides[g.id]?.category||g.category)?g.parts.length:1),0);
   const imageUrl=(id:string)=>`/api/studio/projects/${project}/asset-style-images/${id}`;
   function picture(id:string|null,set:(id:string|null)=>void,label:string){return <div className="batch-picture"><label>{label}<input aria-label={label} type="file" accept="image/png,image/jpeg" disabled={disabled} onChange={e=>{const file=e.target.files?.[0];e.target.value='';if(file)void act('處理參考圖',async()=>{if(file.size>5*1024**2)throw new Error('圖片上限 5 MB');const form=new FormData();form.append('file',file);const r=await api<{id:string}>(`/projects/${project}/asset-style-images`,'POST',form);if(alive.current)set(r.id);});}}/></label>{id&&<><img src={imageUrl(id)} alt="風格參考"/><button type="button" disabled={disabled} onClick={()=>set(null)}>移除圖片</button></>}</div>;}
-  return <div className="batch-entry">
-    <button className="primary" disabled={busy||!!working} onClick={()=>act('讀取配置範圍',async()=>{if(dirty&&!await onSave())throw new Error('請先保存目前編輯');const [inventory,current]=await Promise.all([api<Item[]>(`/projects/${project}/asset-batches/inventory`),api<Batch|null>(`/projects/${project}/asset-batches/current`)]);if(alive.current){setItems(inventory);setBatch(current);dialog.current?.showModal();}})}>✦ 一鍵配置</button><span>{working||error||(pending(batch?.status)?batch?.phase:'整屋／空間／家具類型 · 免費素材優先')}</span>
+  const configureButton=<button className="primary" disabled={busy||!!working} onClick={()=>act('讀取配置範圍',async()=>{if(dirty&&!await onSave())throw new Error('請先保存目前編輯');const [inventory,current]=await Promise.all([api<Item[]>(`/projects/${project}/asset-batches/inventory`),api<Batch|null>(`/projects/${project}/asset-batches/current`)]);if(alive.current){setItems(inventory);setBatch(current);dialog.current?.showModal();}})}>一鍵配置</button>;
+  const status=working||error||(pending(batch?.status)?batch?.phase:'整屋／空間／家具類型 · 免費素材優先');
+  return <div className={toolbar?'batch-toolbar-entry':'batch-entry'}>{toolbar?toolbar(configureButton,status):<>{configureButton}<span>{status}</span></>}
+
     <dialog ref={dialog} className="asset-batch-dialog" aria-labelledby="batch-title">
       <header><div><h2 id="batch-title">一鍵配置 · BlenderKit 配對</h2><p>自動搜尋免費素材、下載並替換第一版。備選保留網址；全部確認後才清理未使用模型。</p></div><button aria-label="關閉一鍵配置" onClick={()=>dialog.current?.close()}>關閉</button></header>
       <nav className="object-actions" aria-label="配置階段"><button aria-pressed={tab==='settings'} onClick={()=>setTab('settings')}>1 範圍與風格</button><button disabled={!batch} aria-pressed={tab==='results'} onClick={()=>setTab('results')}>2 第一版與備選 {batch?`（${batch.items.filter(i=>i.placement?.status==='installed').length}／${batch.items.length}）`:''}</button></nav>

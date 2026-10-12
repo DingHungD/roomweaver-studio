@@ -7,7 +7,7 @@ import type {Revision,Scene} from './api';
 type Batch={id:string;status:string;phase?:string;error?:string;placement_revision?:string;items:{task_id:string;name:string;placement?:{status:string;error?:string}}[]};
 type Proposal={id:string;base_revision:string;items:{id:string;furniture:{name:string;size:number[]};position:number[];room_id:string|null}[];notes:string[];lights:unknown[];plan?:{id:string;name:string;lo:number[];hi:number[]}[];batch?:Batch;adoption?:{selected_ids:string[];revision:string}};
 const pending=(status?:string)=>['queued','running','matching','applying','stopping'].includes(status||'');
-export default function StagingPanel(props:{actions?:(locked:boolean)=>ReactNode;kind:'decor'|'lighting';project:string;scene:Scene;revision:string|null;dirty:boolean;busy:boolean;model:string;onSave:()=>Promise<string|null|undefined>;onAccept:(r:Revision)=>void}){
+export default function StagingPanel(props:{toolbar?:(configure:ReactNode,locked:boolean)=>ReactNode;kind:'decor'|'lighting';project:string;scene:Scene;revision:string|null;dirty:boolean;busy:boolean;model:string;onSave:()=>Promise<string|null|undefined>;onAccept:(r:Revision)=>void}){
  const {kind,project,scene,revision,dirty,busy,onSave,onAccept,model}=props;
  const [proposal,setProposal]=useState<Proposal|null>(null),[batch,setBatch]=useState<Batch|null>(null),[selected,setSelected]=useState<string[]>([]),[description,setDescription]=useState(''),[room,setRoom]=useState(''),[height,setHeight]=useState(2.7),[lamps,setLamps]=useState(false),[working,setWorking]=useState(false),[error,setError]=useState('');
  const [open,setOpen]=useState(false),[loading,setLoading]=useState(true);
@@ -27,7 +27,8 @@ export default function StagingPanel(props:{actions?:(locked:boolean)=>ReactNode
   });
  });}
 
- return <div className="staging-workspace"><div className="editor-action-row" role="group" aria-label={kind==='decor'?'裝飾物操作':'光源操作'}><button className="primary" title="使用目前範圍與風格，保存配置並自動搜尋、下載免費模型" disabled={disabled} onClick={()=>void generate(true)}>{working?'配置中…':pending(batch?.status)?'模型配置中…':kind==='decor'?'一鍵配置裝飾物':'一鍵配置照明'}</button>{props.actions?.(disabled)}</div>
+ const configureButton=<button className="primary" title="使用目前範圍與風格，保存配置並自動搜尋、下載免費模型" disabled={disabled} onClick={()=>void generate(true)}>{working?'配置中…':pending(batch?.status)?'模型配置中…':'一鍵配置'}</button>;
+ return <div className="staging-workspace">{props.toolbar?props.toolbar(configureButton,disabled):configureButton}
  <details className="automatic-staging" open={open} onToggle={e=>setOpen(e.currentTarget.open)}><summary>{kind==='decor'?'自動建議裝飾配置':'自動建議照明配置'}（整屋／空間）{batch?` · ${batch.items.filter(i=>i.placement?.status==='installed').length}／${batch.items.length} 已替換`:proposal?` · ${proposal.items.length} 件建議`:''}</summary><div className="automatic-staging-body"><section className="lighting-panel staging-panel" aria-label={kind==='decor'?'自動建議裝飾配置':'自動配置室內外照明'}>
   <details className="staging-options" open={!proposal}><summary>配置範圍與風格</summary><h2>{kind==='decor'?'自動建議裝飾配置':'室外日光＋室內燈具'}</h2>
   <p>{kind==='decor'?'依家具與可用檯面安排花瓶、書籍、餐具、鍋具、洗手用品及地毯。一鍵配置會加入位置並由 Agent 找 BlenderKit 免費模型，也可只預覽後自行採用。':'日光與天空提供室外光；室內加入天花燈具模型及綁定光源。可選配沙發旁落地燈，移動燈具時光源一起移動。'}</p>

@@ -1,3 +1,6 @@
+import {EditorTools,EditorInspector} from './EditorWorkspace';
+import type {ReactNode} from 'react';
+import EditorToolbar from './EditorToolbar';
 import {useEffect,useRef,useState} from 'react';
 import AddFurniture from './AddFurniture';
 import type {Addition} from './AddFurniture';
@@ -51,24 +54,25 @@ export default function SpaceEditor({kind='furniture',scene,project,onChange,onC
       }
     }finally{setAddingBusy(false);}
   }
-  const manualAddButton=(locked=false)=><button className="primary" disabled={locked||busy||addingBusy} onClick={()=>{setAdding(true);setDrawing(true);setArea(null);setMode('plan');setMoving(false);setAdditionError('');}}>＋ 框選新增{kind==='decor'?'裝飾物':'家具元件'}</button>;
-  return <section className="space-editor">
-    <div className="space-navigation" role="tablist" aria-label="空間檢視方式">
+  const manualAddButton=(locked=false)=><button className="primary" disabled={locked||busy||addingBusy} onClick={()=>{setAdding(true);setDrawing(true);setArea(null);setMode('plan');setMoving(false);setAdditionError('');}}>＋ 新增{kind==='decor'?'裝飾物':'家具'}</button>;
+  const toolbar=(configure:ReactNode,locked=false,status?:ReactNode)=><EditorToolbar views={<>
       <button role="tab" aria-selected={mode==='plan'} onClick={()=>{setMode('plan');setChild('');}}>2D 平面圖</button>
       <button role="tab" aria-selected={mode==='walk'} onClick={()=>{setMode('walk');setChild('');}}>3D 畫面</button>
       {group&&!group.deleted&&<button role="tab" aria-selected={mode==='object'} onClick={inspect}>3D 單物件展示</button>}
+    </>} actions={<>{manualAddButton(locked)}{configure}<button disabled={(kind==='decor'&&locked)||!canUndo||busy||(kind==='decor'&&addingBusy)} onClick={onUndo}>復原上一步</button></>}>
       {mode==='plan'&&<label className="plan-contrast"><input type="checkbox" checked={contrast} onChange={e=>setContrast(e.target.checked)}/>加強輪廓辨識</label>}
       <span>{scene.groups.filter(g=>!g.deleted).length} 個單物件 · {scene.objects.length} 個組成</span>
-      {kind!=='decor'&&<button disabled={!canUndo||busy} onClick={onUndo}>復原上一步</button>}
-    </div>
-    {kind==='decor'?<StagingPanel kind="decor" project={project} scene={scene} revision={revision} dirty={dirty} busy={busy||addingBusy} model={model} onSave={onSave} onAccept={onAccept} actions={locked=><>{manualAddButton(locked)}<button disabled={locked||!canUndo||busy||addingBusy} onClick={onUndo}>復原上一步</button></>}/>:<div className="addition-toolbar">{manualAddButton()}<p>框選範圍後填寫需求，或指定 BlenderKit 模型網址。</p></div>}
+      {status&&<span>{status}</span>}
+    </EditorToolbar>;
+  return <section className="space-editor"><EditorTools>
+    {kind==='decor'?<StagingPanel kind="decor" project={project} scene={scene} revision={revision} dirty={dirty} busy={busy||addingBusy} model={model} onSave={onSave} onAccept={onAccept} toolbar={(configure,locked)=>toolbar(configure,locked)}/>:<AssetBatch toolbar={(configure,status)=>toolbar(configure,false,status)} onAccept={onAccept} project={project} scene={scene} revision={revision} dirty={dirty} model={model} busy={busy} onSave={onSave} onInspect={(gid,pid,task)=>{select(gid,pid||undefined);setMatchTask(task);setMoving(false);setMode('object');}}/>}
+    {kind==='furniture'&&<p className="addition-toolbar-help">框選範圍後填寫需求，或指定 BlenderKit 模型網址。</p>}
     {additionError&&<p role="alert">{additionError}</p>}
-    {kind==='furniture'&&<AssetBatch onAccept={onAccept} project={project} scene={scene} revision={revision} dirty={dirty} model={model} busy={busy} onSave={onSave} onInspect={(gid,pid,task)=>{select(gid,pid||undefined);setMatchTask(task);setMoving(false);setMode('object');}}/>}
-    <div className="space-editor-grid">
+    </EditorTools><div className="space-editor-grid">
       <div>{active&&<SpaceViewport areaEditing={drawing} placementArea={adding?area:null} onArea={a=>{setArea(a);setDrawing(false);}} onAreaCancel={()=>setDrawing(false)} key={scene.groups.map(g=>g.id+':'+g.children.join(',')).join('|')} transformMode={transformMode} onSelectionCenter={p=>{selectionCenter.current=p;}} onRotate={(_id,angle)=>rotate(angle)} onPlanCenter={xy=>{planCenter.current=xy;}} planContrast={contrast} url={fileUrl(project,scene.model_id,'model.glb')} design={scene} mode={mode} selected={selected} child={child} moving={moving&&!adding&&!addingBusy} onSelect={select} onInspect={id=>{if(kind==='decor'&&!scene.groups.some(g=>g.id===id&&isDecoration(scene,g)))return;select(id);setMoving(false);setMode('object');}} onMove={(id,delta)=>edit(s=>{s.groups.find(g=>g.id===id)!.translation=delta;})}/>}
         <div className="space-bottom"><span>{mode==='object'?`${group?.name||''} · 只顯示此單物件`:mode==='plan'?contrast?'輪廓辨識：簡化地板與光影，實際材質不變。':'柔光平面：保留材質、柔和陰影與室內置中；預覽光不影響出圖。':'平面與 3D 共用同一模型，修改後請保存。'}</span><button className="primary" disabled={busy} onClick={onContinue}>設定光源 →</button></div>
       </div>
-      <aside className="studio-inspector assembly-inspector">
+      <EditorInspector>
         {adding&&<AddFurniture key={kind} kind={kind} area={area} drawing={drawing} onDraw={()=>{setMode('plan');setMoving(false);setDrawing(true);}} onCancel={()=>{setAdding(false);setDrawing(false);setArea(null);}} getCenter={()=>planCenter.current} scene={scene} busy={busy||addingBusy} onAdd={addItem}/>}
         <fieldset disabled={busy||addingBusy} hidden={adding} style={{border:0,padding:0,margin:0,minWidth:0}}>
 
@@ -87,7 +91,7 @@ export default function SpaceEditor({kind='furniture',scene,project,onChange,onC
         </>}
         <details className="space-names"><summary>空間名稱管理</summary>{scene.rooms.map(r=><label key={r.id}>空間名稱<input value={r.name} onChange={e=>edit(s=>{s.rooms.find(x=>x.id===r.id)!.name=e.target.value;})}/></label>)}<button onClick={()=>edit(s=>{s.rooms.push({id:'room-'+crypto.randomUUID().slice(0,8),name:'新空間'});})}>＋ 新增空間</button></details>
         </fieldset>
-      </aside>
+      </EditorInspector>
     </div>
   </section>;
 }

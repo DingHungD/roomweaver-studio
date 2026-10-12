@@ -51,3 +51,29 @@ test('soft plan retains PBR maps, clips shadows and restores original emission a
   assert.equal(original.emissiveIntensity,500);assert.equal(original.clippingPlanes,null);
   display.restore();assert.equal(mesh.material,original);
 });
+
+test('reselecting or switching views reuses preview materials and borrowed textures',()=>{
+ const texture=new THREE.Texture(),source=new THREE.MeshStandardMaterial({map:texture});
+ const root=new THREE.Group(),a=new THREE.Mesh(new THREE.BoxGeometry(),source),b=new THREE.Mesh(new THREE.BoxGeometry(),source);root.add(a,b);
+ const display=new PlanDisplay();display.apply(root,new Set(),true,[]);const preview=a.material;
+ assert.equal(a.material,b.material);
+ let disposed=0,textureDisposed=0;preview.addEventListener('dispose',()=>disposed++);texture.addEventListener('dispose',()=>textureDisposed++);
+ for(let i=0;i<20;i++){display.restore();assert.equal(a.material,source);display.apply(root,new Set(),true,[]);assert.equal(a.material,preview);}
+ assert.equal(disposed,0);display.dispose();assert.equal(disposed,1);assert.equal(textureDisposed,0);assert.equal(a.material,source);
+});
+
+test('replaced source materials retire cached previews while keeping active variants',()=>{
+ const root=new THREE.Group(),a=new THREE.Mesh(new THREE.BoxGeometry(),new THREE.MeshStandardMaterial());root.add(a);
+ const display=new PlanDisplay();display.apply(root,new Set(),true);const old=a.material;let disposed=0;old.addEventListener('dispose',()=>disposed++);
+ display.restore();const replacement=new THREE.MeshStandardMaterial({color:'red'});a.material=replacement;
+ display.apply(root,new Set(),true);assert.equal(disposed,1);assert.ok(a.material.color.equals(replacement.color));display.restore();assert.equal(a.material,replacement);
+ display.dispose();assert.equal(disposed,1);
+});
+
+test('source shader version changes retire old previews without disposing textures',()=>{
+ const texture=new THREE.Texture(),source=new THREE.MeshStandardMaterial({map:texture});
+ const root=new THREE.Group(),mesh=new THREE.Mesh(new THREE.BoxGeometry(),source);root.add(mesh);const display=new PlanDisplay();
+ let disposed=0,textureDisposed=0;texture.addEventListener('dispose',()=>textureDisposed++);
+ for(let i=0;i<8;i++){display.apply(root,new Set(),true);mesh.material.addEventListener('dispose',()=>disposed++);display.restore();source.needsUpdate=true;}
+ assert.equal(disposed,7);display.dispose();assert.equal(disposed,8);assert.equal(textureDisposed,0);
+});

@@ -37,5 +37,5 @@ export default function LightingPanel({project,revision,scene,dirty,busy,onChang
       <div className="coordinates">{['X','Y','Z'].map((axis,i)=><label key={axis}>{axis} 位置（m）<input type="number" step="0.1" value={Number(lightPosition(light,scene)[i].toFixed(3))} onChange={e=>{const p=lightPosition(light,scene);p[i]=Number(e.target.value);changeLight(placeLight(light,scene,p));}}/></label>)}</div>
       <div className="coordinates">{['X','Y','Z'].map((axis,i)=><label key={axis}>{axis} 旋轉（°）<input type="number" step="5" value={Math.round(light.rotation[i]*180/Math.PI)} onChange={e=>{const p=[...light.rotation] as [number,number,number];p[i]=Number(e.target.value)*Math.PI/180;changeLight({rotation:p});}}/></label>)}</div>
       <button onClick={()=>{edit(s=>{s.lights=s.lights.filter(l=>l.id!==selected);});setSelected('');}}>移除此光源</button>
-    </div>}</fieldset><p className="muted">切換「3D 光影預覽」可即時查看近似光影；請到「整合輸出」低解析出圖，確認實際照明。日間模式為柔和環境提案，並非實際日照分析。</p></section>;
+    </div>}</fieldset><p className="muted">切換「3D 畫面」可即時查看近似光影；請到「整合輸出」低解析出圖，確認實際照明。日間模式為柔和環境提案，並非實際日照分析。</p></section>;
 }

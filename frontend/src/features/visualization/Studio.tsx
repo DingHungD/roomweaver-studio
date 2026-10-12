@@ -1,3 +1,4 @@
+import {EditorWorkspace,WorkspaceControls,RailToggle} from './EditorWorkspace';
 import {useEffect,useRef,useState} from 'react';
 import {api,fileUrl} from './api';
 import type {Connection,Job,Output,Revision,Scene,Task,Workflow} from './api';
@@ -6,6 +7,7 @@ import ViewpointEditor from './ViewpointEditor';
 import {confirmDesignRevision,renderReady} from './studioFlow';
 import './studio.css';
 import SpaceEditor from './SpaceEditor';
+import {ViewportProvider} from './SpaceViewport';
 import OutputCleanup from './OutputCleanup';
 import PlanImport from './PlanImport';
 import ImageImport from './ImageImport';
@@ -69,16 +71,16 @@ export default function Studio(){
     setWorkflow(await api<Workflow>(`/projects/${project}/workflows`,'POST',{base_revision:revision,operation_id:uid(),quality}));
   }
   const visibleOutputs=outputs.filter(o=>!o.deleted&&(showOld||!o.stale));
-  return <div className="studio-app">
+  return <ViewportProvider><EditorWorkspace editing={!!scene&&[1,2,3,5].includes(step)}><div className="studio-app">
     <header className="studio-header"><a className="studio-brand" href="?studio=visualization"><span>◈</span> Roomweaver <small>LOCAL STUDIO</small></a><div className="header-actions"><span className="local-pill">● 本機運算</span>{scene&&<button disabled={!!busy} onClick={()=>perform('建立備份',async()=>{const result=await api<{path:string}>('/backup','POST');setNotice('資料庫與設定已備份：'+result.path);})}>備份設定</button>}<button onClick={()=>setAgentOpen(!agentOpen)}>Agent 設定</button></div></header>
     <div className="studio-shell"><nav className="studio-rail" aria-label="工作室導覽">
-      <small>設計工作區</small><button className={step===0?'active':''} aria-current={step===0?'page':undefined} onClick={()=>setStep(0)}><b>01</b> 匯入</button>
+      {scene&&[1,2,3,5].includes(step)&&<RailToggle label={captions[step]}/>}<small>設計工作區</small><button className={step===0?'active':''} aria-current={step===0?'page':undefined} onClick={()=>setStep(0)}><b>01</b> 匯入</button>
       <button disabled={!scene} className={step>0&&step!==4?'active':''} onClick={()=>setStep(1)}><b>02</b> 編輯</button>
       {scene&&<div className="edit-sections">{([{id:1,name:'材質',icon:'▧'},{id:5,name:'裝飾物',icon:'✿'},{id:2,name:'光源',icon:'☀'},{id:3,name:'觀看點',icon:'◎'}]).map(item=><button key={item.id} aria-current={step===item.id?'page':undefined} className={step===item.id?'selected':''} onClick={()=>setStep(item.id)}><span>{item.icon}</span>{item.name}</button>)}</div>}
       <button disabled={!scene} className={step===4?'active':''} aria-current={step===4?'page':undefined} onClick={()=>setStep(4)}><b>03</b> 整合輸出</button>
       <p>{scene?projectInfo?.name:'先匯入模型，再開始編輯。'}</p>
     </nav><div className="studio-content">
-    <div className="studio-title"><div><small>YOUR SPACE, YOUR PERSPECTIVE</small><h1>{captions[step]}</h1></div>{scene&&step!==0&&<div className="save-actions"><span>{dirty?'有尚未保存的修改':`已保存 · ${revision?.slice(0,8)}`}</span><button disabled={!dirty||!!busy} onClick={()=>perform('保存中',async()=>{await save();})}>保存修改</button></div>}</div>
+    <div className="studio-title"><div><small>YOUR SPACE, YOUR PERSPECTIVE</small><h1>{captions[step]}</h1></div>{scene&&step!==0&&<div className="save-actions"><span>{dirty?'有尚未保存的修改':`已保存 · ${revision?.slice(0,8)}`}</span><button disabled={!dirty||!!busy} onClick={()=>perform('保存中',async()=>{await save();})}>保存修改</button></div>}{scene&&[1,2,3,5].includes(step)&&<WorkspaceControls/>}</div>
     {(error||busy||notice)&&<div className={`studio-banner ${error?'error':''}`} role="status">{error||busy||notice}<button aria-label="關閉通知" onClick={()=>{setError('');setNotice('');}}>×</button></div>}
     {scene&&step===4&&<div className="studio-banner" role="note"><span>{scene.lighting_setup?.enabled?'已採用自訂照明；出圖時會試渲染並依設定進行 Agent 判圖／有限次調整。':readiness?.status==='blocked'?`渲染尚未就緒：${readiness.issues.join('；')}`:readiness?`照明盤點：${readiness.light_count} 盞燈 · ${readiness.world_available?'有環境光':'無環境光'}。出圖前會逐鏡位試渲染檢查。`:'此模型尚無匯入照明檢查紀錄；出圖時會先檢查場景，再試渲染。'}<br/>材質預覽使用展示燈光；光影預覽僅近似直接照明。以低解析 Cycles 試圖確認整體光照，檢查通過後仍需人工確認品質。</span></div>}
     {step===0&&<>
@@ -102,5 +104,5 @@ export default function Studio(){
     {agentOpen&&<div className="agent-drawer"><div className="section-heading"><div><small>LOCAL CODEX</small><h2>Agent 與能力測試</h2></div><button onClick={()=>setAgentOpen(false)} aria-label="關閉 Agent 設定">×</button></div><p>沿用本機 ChatGPT 訂閱登入。模型在雲端執行，檔案與渲染留在本機。</p><button disabled={!!busy} onClick={()=>perform('檢查 Codex 登入',async()=>{setConnection(await api<Connection>('/agent/status'));})}>檢查登入與模型</button>{connection&&<p>{connection.authenticated?'已登入':'尚未登入'} · {connection.auth_type} · {connection.version}</p>}<label>模型<select value={model} onChange={e=>setModel(e.target.value)}><option value="">使用 Codex 預設模型</option>{connection?.models.map(m=><option key={m.id} value={m.id}>{m.displayName}</option>)}</select></label><p className="muted">Claude、Ollama adapter 尚未開放，不會自動切換供應者。</p><div className="test-buttons">{(['connection','vision','tool','browser'] as const).map((kind,i)=><button key={kind} onClick={()=>perform('開始能力測試',async()=>{const t=await api<Task>('/agent/tests','POST',{kind,model:model||null});setTasks(old=>[t,...old]);})}>{['連線','看圖','工具','瀏覽器操作'][i]}</button>)}</div>{tasks.map(task=><article className="agent-task" key={task.id}><b>{task.kind} · {task.status}</b>{['queued','running'].includes(task.status)&&<button onClick={()=>perform('停止 Agent',async()=>{await api(`/agent/tasks/${task.id}/stop`,'POST');})}>停止</button>}{task.error&&<p className="error-text">{task.error}</p>}{task.response&&<p>{task.response.text}</p>}{task.evidence&&<img src={`/api/studio/agent/tasks/${task.id}/images/${task.evidence.screenshot.split(/[\\/]/).at(-1)}`} alt="瀏覽器實際狀態"/>}{task.candidate&&<><span className="candidate-swatch" style={{background:task.candidate.color}}/>{task.candidate.reason}<p>{task.candidate.source_verified?'已讀取指定參考頁，授權尚未核對。':'依使用者描述提出，尚未查核外部來源。'}本候選只調整基本色與粗糙度。</p><button disabled={dirty} onClick={()=>perform('採用材質候選',async()=>{accept(await api<Revision>(`/projects/${project}/candidates/${task.id}/adopt`,'POST',{base_revision:revision,confirmation_id:task.id}));setNotice('已採用於指定物件，重新出圖即可查看。');})}>採用於指定物件</button></>}</article>)}</div>}
     {view&&<div className="studio-modal" role="dialog" aria-modal="true" aria-label={view.name}><div className="modal-content"><div className="section-heading"><h3>{view.name}</h3><button onClick={()=>setView(null)}>關閉 ×</button></div>{view.kind==='panorama'?<Panorama url={fileUrl(project,view.job_id,view.file)}/>:<img src={fileUrl(project,view.job_id,view.file)} alt={view.name}/>}<p>{view.kind==='panorama'?'拖曳環視 360° · ':''}設定版本 {view.revision.slice(0,8)}　<a href={fileUrl(project,view.job_id,view.file)} download={view.file}>下載原圖 ↗</a></p></div></div>}
     <footer className="studio-footer">設計由你確認，流程由工作室接續。<span>本機單使用者 · Blender / Cycles</span></footer>
-  </div>;
+  </div></EditorWorkspace></ViewportProvider>;
 }
