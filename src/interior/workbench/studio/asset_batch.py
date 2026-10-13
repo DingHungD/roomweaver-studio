@@ -7,7 +7,9 @@ from PIL import Image, ImageOps
 from pydantic import Field
 from .models import Strict
 from .asset_matching import object_context, preview_dimensions, run_matching
+from .asset_quality import requirements
 from ..storage import Conflict, read_json, write_json
+from ..agent_runtime.codex import ModelAccessError
 
 TYPES = {'chair':'椅子','bed':'床','cabinet':'櫃子','wall':'牆壁','floor':'地板',
          'sofa':'沙發','table':'桌子','light':'燈具','surface':'門窗／天花材質','other':'其他'}
@@ -16,12 +18,15 @@ WORDS = {'chair':r'chair|stool|椅|凳', 'bed':r'\bbed\b|bunk|床',
          'floor':r'floor|地板|地坪', 'sofa':r'sofa|couch|沙發',
          'table':r'table|desk|桌', 'light':r'lamp|light|燈'}
 
+DEFAULT_STYLE = '溫暖北歐，淺橡木與米白布料，保留輕盈感'
+
 class ObjectStyle(Strict):
     enabled: bool = True
     use_global: bool = True
     description: str = Field(default='',max_length=2000)
     image_id: str | None = Field(default=None,pattern=r'^[a-f0-9]{64}$')
     category: str | None = None
+    keep_original: bool = False
 
 class BatchRequest(Strict):
     base_revision: str = Field(pattern=r'^[a-f0-9]{32}$')
@@ -34,6 +39,8 @@ class BatchRequest(Strict):
     overrides: dict[str,ObjectStyle] = Field(default_factory=dict,max_length=2000)
     model: str | None = None
     auto_apply: bool = True
+    auto_repair: bool = True
+    procedural_fallback: bool = True
 
 def inventory(scene):
     items=[]
@@ -41,13 +48,16 @@ def inventory(scene):
         if g['deleted']:continue
         concept=next((f for f in scene.get('concept_furniture',[]) if f['id']==g['id']),None)
         parts=[o for o in scene['objects'] if o['id'] in g['children']]
-        label=' '.join([(concept or {}).get('asset',''),g['name'],*[p.get('name','') for p in parts]])
+        label=' '.join([(concept or {}).get('asset',''),g['name'],*([p.get('name','') for p in parts] if not g.get('asset_reference') else [])])
         category=next((k for k,p in WORDS.items() if re.search(p,label,re.I)),'other')
+        purpose=requirements(dict(group=g,concept=concept))['purpose']
+        category={'wardrobe':'cabinet','bookcase':'cabinet','shoe_cabinet':'cabinet','nightstand':'cabinet','bunk_bed':'bed','desk':'table','dresser':'table'}.get(purpose,category)
         # Host names may follow generated names ("天花燈具 · floor").
         # The object's own purpose takes priority over its support's category.
         if re.search(r'^(天花燈具|落地燈)|ceiling.light|floor.lamp',g['name'],re.I):category='light'
         if re.search(r'^(花瓶|書籍|鍋具|餐具|洗手用品|洗手乳|地毯|植栽|盆栽)',g['name']):category='other'
         if re.search(r'window|door|ceiling|窗|門|天花',g['name'],re.I) and not re.search(WORDS['light'],label,re.I):category='surface'
+        if g.get('method') in ('structural_wall','structural_floor'):category=g['method'].removeprefix('structural_')
         items.append(dict(id=g['id'],name=g['name'],category=category,
             room_ids=sorted({p['room_id'] for p in parts if p['room_id']}),parts=[p['id'] for p in parts]))
     return items
@@ -62,16 +72,27 @@ def select_targets(scene,body):
         override=body.overrides.get(g['id'],ObjectStyle())
         category=override.category or g['category']
         if category not in TYPES:raise ValueError('未知家具類型')
+        if g['category'] in ('wall','floor','surface') and category!=g['category']:
+            raise ValueError('牆地門窗只能更换材質，不可改成家具類型')
         if not override.enabled or (body.categories and category not in body.categories):continue
         if body.room_ids and not set(body.room_ids).intersection(g['room_ids']):continue
         global_on=body.use_global and override.use_global
-        description='\n'.join(x for x in [body.description if global_on else '',override.description] if x)
+        description='\n'.join(x for x in [(body.description.strip() or DEFAULT_STYLE) if global_on else '',override.description] if x)
+        group=next(x for x in scene['groups'] if x['id']==g['id'])
+        specification=group.get('object_specification') or {}
+        if specification.get('material_policy')=='original':
+            description='沿用原物件材質，不依全案风格換色。\n'+override.description
+            global_on=False
+        elif specification.get('material_policy')=='specified':
+            description+='\n指定部位：'+specification.get('material_part','')+'；指定材質：'+specification.get('material_description','')
+        if specification.get('style'):description+='\n物件風格：'+specification['style']
         images=list(dict.fromkeys(x for x in [body.image_id if global_on else None,override.image_id] if x))
         # Structural surfaces are material targets, never replaced with furniture geometry.
         kind='material' if category in ('wall','floor','surface') else 'model'
-        for part in g['parts'] if kind=='material' else [None]:
-            selected.append(dict(group_id=g['id'],object_id=part,kind=kind,name=g['name'],category=category,
-                description=description,image_ids=images))
+        members=[o['id'] for o in scene['objects'] if o['id'] in g['parts'] and
+                 (not body.room_ids or o['room_id'] in body.room_ids)] if kind=='material' else None
+        selected.append(dict(group_id=g['id'],object_id=None,object_ids=members,kind=kind,name=g['name'],category=category,
+            description=description,image_ids=[] if override.keep_original else images,keep_original=override.keep_original))
     if not selected:raise ValueError('這個範圍沒有可配對的物件，請調整範圍或物件勾選')
     if len(selected)>100:raise ValueError('一次最多配對 100 個目標；請縮小空間或類型範圍')
     return selected
@@ -105,16 +126,21 @@ class AssetBatch:
         if payload['project_id']!=project:raise ValueError('批次不屬於本案')
         result=self.agents.get(identifier)
         rows=[]
+        placement_path=self.automation.path(project,identifier)
+        placements=read_json(placement_path).get('items',{}) if placement_path.exists() else {}
         for target in payload['targets']:
-            item=self.assets.get(project,target['task_id'])
-            if result['status'] not in ('running','queued','stopping') and item['status'] in ('running','queued'):
+            effective=placements.get(target['task_id'],{}).get('match_task_id',target['task_id'])
+            item=self.assets.get(project,effective)
+            if result['status'] not in ('running','queued','stopping') and effective==target['task_id'] and item['status'] in ('running','queued'):
                 item.update(status='interrupted',error='批次已中斷；此項尚未完成，可重新配對')
                 write_json(self.assets.folder(project)/target['task_id']/'result.json',item)
-            rows.append(dict(task_id=target['task_id'],group_id=target['group_id'],object_id=target['object_id'],name=target['name'],
+            rows.append(dict(_candidate_checks={c['asset_id']:c.get('quality') for c in item.get('candidates',[])},candidate_task_id=effective,requirements=requirements(target['context']),task_id=target['task_id'],group_id=target['group_id'],object_id=target['object_id'],object_ids=target.get('object_ids'),name=target['name'],
                 kind=target['kind'],status=item['status'],error=item.get('error'),count=len(item.get('candidates',[])),
                 free_count=sum(c['is_free'] for c in item.get('candidates',[]))))
-        response=dict(id=identifier,status=result['status'],phase=result.get('phase'),error=result.get('error'),items=rows,settings=payload['settings'])
-        return self.automation.decorate(project,identifier,response)
+        response=dict(id=identifier,status=result['status'],model=result.get('model'),phase=result.get('phase'),error=result.get('error'),items=rows,settings=payload['settings'])
+        response=self.automation.decorate(project,identifier,response)
+        for row in response['items']:row.pop('_candidate_checks',None)
+        return response
     def current(self,project):
         pointer=self.folder(project)/'current.json'
         return self.get(project,read_json(pointer)['id']) if pointer.exists() else None
@@ -130,10 +156,18 @@ class AssetBatch:
             previous=self.current(project)
             if previous and previous['status'] in ('queued','running','stopping','matching','applying'):raise Conflict('已有配置進行中，請等候或停止')
             targets=select_targets(current['scene'],body)
+            from .object_specs import preview
+            specs={r['group_id']:r for r in preview(self.studio,project,body.base_revision)['items']}
+            missing=[t['name'] for t in targets if t['kind']=='model' and not t['keep_original'] and not specs[t['group_id']]['specification']['purpose']]
+            if missing:raise ValueError('請填用途或選擇本次保留原件：'+'、'.join(missing))
             for i,target in enumerate(targets):
-                context=object_context(current['scene'],target['group_id'],target['object_id'])
+                context=object_context(current['scene'],target['group_id'],target['object_id'],target.get('object_ids'))
                 context['dimensions_metres']=context['concept']['size'] if context['concept'] else preview_dimensions(
                     self.studio.root(project)/'runs/interior-studio'/current['scene']['model_id']/'model.glb',context['group']['children'])
+                if target['group_id'] in specs:
+                    context['design_specification']=specs[target['group_id']]
+                    if specs[target['group_id']]['dimensions']:
+                        context['dimensions_metres']=specs[target['group_id']]['dimensions']
                 task=uuid5(NAMESPACE_URL,identifier+':'+str(i)).hex
                 images=[str(self.image(project,x)) for x in target.pop('image_ids')]
                 target.update(task_id=task,images=images,context=context,base_revision=body.base_revision,project_id=project,
@@ -141,7 +175,7 @@ class AssetBatch:
             # Validate every target before publishing any child record.
             for target in targets:
                 write_json(self.assets.folder(project)/target['task_id']/'input.json',target)
-                write_json(self.assets.folder(project)/target['task_id']/'result.json',dict(id=target['task_id'],status='queued'))
+                write_json(self.assets.folder(project)/target['task_id']/'result.json',dict(id=target['task_id'],status='passed' if target['keep_original'] else 'queued',candidates=[]))
                 write_json(self.assets.pointer(project,target['group_id']),dict(id=target['task_id']))
             payload=dict(project_id=project,targets=targets,settings=body.model_dump(),result_path=str(path.parent/'result.json'))
             write_json(path,payload);write_json(self.folder(project)/'current.json',dict(id=identifier))
@@ -149,9 +183,9 @@ class AssetBatch:
             if body.auto_apply:self.automation.start(project,identifier,body.base_revision)
             return self.get(project,identifier)
 
-def run_batch(client,directory,payload,model,progress,event):
-    done=[]
-    for i,target in enumerate(payload['targets']):
+def run_batch(client,directory,payload,model,progress,event,client_factory=None):
+    def one(i,target,worker):
+        if target.get("keep_original"):return target["task_id"]
         progress(f'配對 {i+1}／{len(payload["targets"])}：{target["name"]}')
         from pathlib import Path
         result_path=Path(target['result_path'])
@@ -162,7 +196,7 @@ def run_batch(client,directory,payload,model,progress,event):
                 for attempt in range(3):
                     progress(f'{i+1}／{len(payload["targets"])} · {target["name"]}：搜尋第 {attempt+1} 次')
                     try:
-                        return run_matching(client,result_path.parent,settings,model,progress,event)
+                        return run_matching(worker,result_path.parent,settings,model,progress,event)
                     except Exception as exc:
                         if attempt==2 or not any(word in str(exc).lower() for word in ('serveroverloaded','at capacity','timeout','timed out','429','503')):raise
                         result.setdefault('retries',[]).append(str(exc))
@@ -171,16 +205,46 @@ def run_batch(client,directory,payload,model,progress,event):
             result.update(match_with_retry(target))
             # A narrower style query may miss all free assets. Retry with purpose
             # and dimensions intact, relaxing style only, never dropping the target.
-            if not any(c.get('is_free') for c in result.get('candidates',[])):
+            if not any(c.get('is_free') and c.get('quality',{}).get('status')=='eligible' for c in result.get('candidates',[])):
                 prior=result.get('candidates',[])
                 fallback=dict(target,description=target.get('description','')+'\n保留上述必要機能與尺寸，只放寬顏色風格。以最簡短用途英文主詞搜尋，例如 washing machine、desk chair；不要把顏色、腳數、front等修飾都塞入關鍵字。完整家具不能用零件替代。')
                 retry=match_with_retry(fallback)
                 merged={c['asset_id']:c for c in [*retry.get('candidates',[]),*prior]}
                 result.update(retry,candidates=sorted(merged.values(),key=lambda c:not c.get('is_free')),style_relaxed=True)
             result['status']='passed'
+        except ModelAccessError:
+            raise
         except Exception as exc:
             result.update(status='failed',error=str(exc))
             write_json(result_path,result)
             progress('已記錄失敗；繼續其他物件')  # also checks stop before another cloud call
-        write_json(result_path,result);done.append(result['id'])
+        write_json(result_path,result)
+        return result['id']
+    targets=list(enumerate(payload['targets']))
+    if not client_factory or len(targets)<2:
+        done=[one(i,t,client) for i,t in targets]
+    else:
+        from concurrent.futures import ThreadPoolExecutor
+        from queue import Queue, Empty
+        import threading
+        queue=Queue();stop=threading.Event()
+        for target in targets:queue.put(target)
+        def consume(worker):
+            done=[]
+            try:
+                while not stop.is_set():
+                    try:i,target=queue.get_nowait()
+                    except Empty:break
+                    progress('雙工作槽搜尋；模型替換仍逐件進行')
+                    done.append(one(i,target,worker))
+                return done
+            except BaseException:
+                stop.set()
+                raise
+        second=client_factory()
+        try:
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                futures=[pool.submit(consume,w) for w in (client,second)]
+                done=[item for f in futures for item in f.result()]
+        finally:second.close()
     return dict(completed=done,phase='搜尋已完成；逐件核對下載與替換狀態')

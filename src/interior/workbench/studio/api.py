@@ -57,6 +57,8 @@ def install(app, store, jobs):
     layouts=LayoutDesign(studio,agents)
     from .asset_matching import AssetMatching, MatchRequest, SelectAsset, LinkAsset
     assets=AssetMatching(studio,agents)
+    from .selected_repair import SelectedRepair, AssistedSelection
+    selected_repairs=SelectedRepair(assets)
     from .asset_batch import AssetBatch, BatchRequest, inventory
     batches=AssetBatch(assets)
     from .staging import Staging, StageRequest, StageApply, StageRetry
@@ -89,6 +91,45 @@ def install(app, store, jobs):
     @app.get('/api/studio/projects/{project_id}/asset-batches/inventory')
     def asset_inventory(project_id:str):return inventory(studio.current(project_id)['scene'])
 
+    from . import object_specs
+
+    @app.post('/api/studio/projects/{project_id}/object-specifications/understand')
+    def specification_understand(project_id:str,body:object_specs.UnderstandInput):
+        from uuid import uuid5, NAMESPACE_URL
+        report=object_specs.preview(studio,project_id,body.base_revision)
+        if set(body.group_ids)-{r['group_id'] for r in report['items']}:raise ValueError('物件範圍已變更')
+        for row in report['items']:
+            if row['group_id'] in body.specifications:
+                spec=body.specifications[row['group_id']].model_dump()
+                if row['purpose_reason']=='已確認規格' and spec['purpose']!=row['specification']['purpose']:raise ValueError('不能覆蓋已確認用途')
+                row['specification']=spec
+        identifier=uuid5(NAMESPACE_URL,'object-spec:'+project_id+':'+body.base_revision+':'+body.operation_id).hex
+        path=studio.folder(project_id)/'object-specifications'/f'task-{identifier}.json'
+        payload=dict(project_id=project_id,preview=report,design_notes=studio.current(project_id)['scene'].get('design_notes',[]),group_ids=body.group_ids,style=body.style,object_styles=body.object_styles)
+        write_json(path,dict(id=identifier,base_revision=body.base_revision))
+        write_json(path.parent/'current-task.json',dict(id=identifier))
+        return agents.start('object_specs',body.model,payload,identifier=identifier)
+
+    @app.get('/api/studio/projects/{project_id}/object-specifications/current')
+    def current_specification_task(project_id:str):
+        path=studio.folder(project_id)/'object-specifications/current-task.json'
+        return agents.get(read_json(path)['id']) if path.is_file() else None
+
+    @app.get('/api/studio/projects/{project_id}/object-specifications/tasks/{identifier}')
+    def specification_task(project_id:str,identifier:str):
+        import re
+        if not re.fullmatch('[a-f0-9]{32}',identifier):raise ValueError('任務 ID 無效')
+        read_json(studio.folder(project_id)/'object-specifications'/f'task-{identifier}.json')
+        return agents.get(identifier)
+
+    @app.post('/api/studio/projects/{project_id}/object-specifications/preview')
+    def specification_preview(project_id:str,body:object_specs.SpecificationInput):
+        return object_specs.preview(studio,project_id,body.base_revision)
+
+    @app.post('/api/studio/projects/{project_id}/object-specifications/save')
+    def specification_save(project_id:str,body:object_specs.SpecificationInput):
+        return object_specs.save(studio,project_id,body)
+
     @app.post('/api/studio/projects/{project_id}/asset-style-images')
     async def asset_style_image(project_id:str,file:UploadFile=File(...)):
         return batches.upload(project_id,await file.read(5*1024**2+1))
@@ -114,9 +155,24 @@ def install(app, store, jobs):
         batches.automation.start(project_id,identifier,body.base_revision)
         return batches.get(project_id,identifier)
 
+    @app.post('/api/studio/projects/{project_id}/asset-batches/{identifier}/repair')
+    def repair_asset_batch(project_id:str,identifier:str,body:ConfirmWorkflow):
+        return batches.automation.repair(project_id,identifier,body.base_revision)
+
+    @app.post('/api/studio/projects/{project_id}/asset-batches/{identifier}/generate-missing')
+    def generate_missing_furniture(project_id:str,identifier:str,body:ConfirmWorkflow):
+        return batches.automation.generate_missing(project_id,identifier,body.base_revision)
+
     @app.post('/api/studio/projects/{project_id}/asset-batches/{identifier}/confirm')
     def confirm_asset_batch(project_id:str,identifier:str,body:AssetReview):
         return batches.automation.confirm(project_id,identifier,body.base_revision,body.keep_original)
+
+    from .asset_matching import PreviewRepair
+    @app.get('/api/studio/projects/{project_id}/asset-preview-repair')
+    def preview_repair_job(project_id:str,group_id:str):return assets.preview_job(project_id,group_id)
+
+    @app.post('/api/studio/projects/{project_id}/asset-preview-repair')
+    def repair_material_preview(project_id:str,body:PreviewRepair):return assets.repair_preview(project_id,body)
 
     @app.get('/api/studio/projects/{project_id}/asset-matches/current')
     def current_assets(project_id:str,group_id:str):return assets.current(project_id,group_id)
@@ -135,6 +191,21 @@ def install(app, store, jobs):
 
     @app.post('/api/studio/projects/{project_id}/asset-matches/{task_id}/replace')
     def replace_asset(project_id:str,task_id:str,body:SelectAsset):return assets.replace(project_id,task_id,body)
+
+    @app.post('/api/studio/projects/{project_id}/asset-matches/{task_id}/replace-assisted')
+    def replace_assisted(project_id:str,task_id:str,body:AssistedSelection):return selected_repairs.start(project_id,task_id,body)
+
+    @app.get('/api/studio/projects/{project_id}/asset-matches/{task_id}/replacement-flow')
+    def current_replacement_flow(project_id:str,task_id:str):return selected_repairs.current(project_id,task_id)
+
+    @app.get('/api/studio/projects/{project_id}/replacement-flows/{identifier}')
+    def replacement_flow(project_id:str,identifier:str):return selected_repairs.get(project_id,identifier)
+
+    @app.post('/api/studio/projects/{project_id}/replacement-flows/{identifier}/resume')
+    def resume_replacement_flow(project_id:str,identifier:str,body:ConfirmWorkflow):return selected_repairs.resume(project_id,identifier,body.base_revision)
+
+    @app.post('/api/studio/projects/{project_id}/replacement-flows/{identifier}/stop')
+    def stop_replacement_flow(project_id:str,identifier:str):return selected_repairs.stop(project_id,identifier)
 
     @app.post('/api/studio/projects/{project_id}/asset-replacements/{job_id}/adopt')
     def adopt_asset(project_id:str,job_id:str,body:ConfirmWorkflow):
@@ -260,6 +331,13 @@ def install(app, store, jobs):
     @app.put('/api/studio/projects/{project_id}/scene')
     def save_scene(project_id:str,body:SaveScene):
         return studio.save(project_id,body.scene.model_dump(mode='json'),body.base_revision)
+
+    @app.post('/api/studio/projects/{project_id}/regroup-structure')
+    def regroup_structure(project_id:str,body:AssetReview):
+        batch=batches.current(project_id)
+        if batch and batch['status'] in ('queued','running','stopping','matching','applying','paused'):
+            raise Conflict('請先停止目前的一鍵配置，再整理牆地分組')
+        return studio.regroup(project_id,body.base_revision)
 
     @app.get('/api/studio/projects/{project_id}/models/{model_id}')
     def model(project_id:str,model_id:str):

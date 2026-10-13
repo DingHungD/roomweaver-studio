@@ -15,12 +15,18 @@ def main(argv=None):
     new.add_argument('id');new.add_argument('--name',required=True)
     serve=commands.add_parser('serve',help='Serve the UI on loopback only')
     example=commands.add_parser('example',help='Register a verified native/GLB example pair, retaining HDRI lighting')
-    example.add_argument('--directory',type=Path,default=Path('examples/daylight-apartment'))
-    example.add_argument('--id',default='DAYLIGHT')
+    example.add_argument('--directory',type=Path,default=Path('examples/from-3d'))
+    example.add_argument('--id',default='EXAMPLE_3D')
     serve.add_argument('--port',type=int,default=8765)
+    serve.add_argument('--blender',type=Path,help='Save Blender executable path in this local workspace')
     doctor=commands.add_parser('doctor',help='Check local dependencies without calling a model')
+    doctor.add_argument('--workspace',type=Path,default=Path('workspace'))
     for command in (init,new,serve,example):command.add_argument('--workspace',type=Path,default=Path('workspace'))
     args=parser.parse_args(argv)
+    if args.command in ('serve','doctor'):
+        from .runtime import configure_blender
+        try:configure_blender(args.workspace,getattr(args,'blender',None))
+        except ValueError as exc:parser.error(str(exc))
     if args.command=='example':
         from .studio.example import register_example
         print(register_example(args.workspace,args.directory,args.id))

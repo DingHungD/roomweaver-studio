@@ -37,6 +37,21 @@ class StageRetry(Strict):
     operation_id: str = Field(pattern=r'^[a-zA-Z0-9_-]{8,100}$')
 
 
+def geometry_scene(scene):
+    """Use actual wall/floor pieces for supports/collisions, not a house-sized box.
+
+    These transient analysis groups never replace the user's editing groups.
+    """
+    result=copy.deepcopy(scene);objects={o['id']:o for o in scene['objects']};groups=[]
+    for g in result['groups']:
+        if g.get('method') not in ('structural_wall','structural_floor'):
+            groups.append(g);continue
+        for child in g['children']:
+            groups.append(dict(g,id=g['id']+':'+child,children=[child],name=g['name']+' · '+objects[child]['name']))
+    result['groups']=groups
+    return result
+
+
 def world_bounds(scene, gltf):
     result={}
     concepts={f['id']:f for f in scene.get('concept_furniture',[])}
@@ -148,7 +163,8 @@ class Staging:
             return existing
         if current['revision']!=body.base_revision:raise Conflict('請先保存最新設計')
         scene=current['scene'];gltf=read_glb(self.studio.root(project)/'runs/interior-studio'/scene['model_id']/'model.glb')
-        result=propose(scene,world_bounds(scene,gltf),body)
+        geometry=geometry_scene(scene)
+        result=propose(geometry,world_bounds(geometry,gltf),body)
         result.update(id=identifier,request=body.model_dump(),base_revision=body.base_revision)
         write_json(path,result);write_json(self.folder(project)/(body.kind+'-current.json'),dict(id=identifier))
         return result

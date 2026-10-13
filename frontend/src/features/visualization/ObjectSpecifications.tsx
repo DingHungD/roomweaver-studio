@@ -1,0 +1,50 @@
+import {useEffect,useRef,useState} from 'react';
+import {api} from './api';
+import type {Revision} from './api';
+import {purposes} from './AssetConstraints';
+import {ObjectVisual} from './ObjectVisuals';
+export type Spec={purpose:string;front:string;front_source:string;material_policy:string;material_description:string;material_part:string;style?:string;dimension_fit?:'uniform'|'adapt'};
+type Row={group_id:string;name:string;structural:boolean;specification:Spec;dimensions:number[]|null;dimension_source:string;dimension_origin:string;dimension_evidence:string;plan_evidence?:string;purpose_reason:string;direction_reason:string;use_side?:string;agent_reason?:string;issues:string[]};
+type Report={base_revision:string;items:Row[];notes:string[];agent_complete?:boolean;unreviewed_group_ids?:string[]};
+type Task={id:string;status:string;error?:string;phase?:string;preview?:Report};
+const filters={purpose:'用途未明',direction:'方向待確認',dimensions:'尺寸來源待核對',material:'指定材質未完整',agent:'Agent 未複核'};
+type Filter=keyof typeof filters;
+function doubts(row:Row,report:Report):Filter[]{return [...(!row.structural&&!row.specification.purpose?['purpose' as const]:[]),...(!row.structural&&row.specification.front==='unknown'?['direction' as const]:[]),...(!row.structural&&row.dimension_source==='unknown'?['dimensions' as const]:[]),...(row.specification.material_policy==='specified'&&(!row.specification.material_description.trim()||!row.specification.material_part.trim())?['material' as const]:[]),...(report.unreviewed_group_ids?.includes(row.group_id)?['agent' as const]:[])];}
+export default function ObjectSpecifications({project,revision,disabled,model,onAccept,selected,kept,onKeep,style,objectStyles,onStart,onInspect}:{project:string;revision:string|null;disabled:boolean;model:string;onAccept:(r:Revision)=>void;selected:string[];kept:string[];onKeep:(id:string,value:boolean)=>void;style:string;objectStyles:Record<string,string>;onStart:(revision:string)=>Promise<void>;onInspect:(id:string)=>void}){
+ const [report,setReport]=useState<Report|null>(null),[task,setTask]=useState<Task|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[checks,setChecks]=useState<Filter[]>([]);
+ const alive=useRef(true);useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
+ const [edited,setEdited]=useState(false);const local=useRef(report);local.current=report;
+ useEffect(()=>{if(!revision||local.current?.base_revision===revision)return;let valid=true;
+   Promise.all([api<Report>(`/projects/${project}/object-specifications/preview`,'POST',{base_revision:revision}),api<Task|null>(`/projects/${project}/object-specifications/current`)]).then(([r,t])=>{if(!valid)return;setReport(t?.preview?.base_revision===revision?t.preview:r);setTask(t?.preview?.base_revision===revision||t&&['queued','running','stopping'].includes(t.status)?t:null);setEdited(false);}).catch(e=>{if(valid)setError(e.message);});return()=>{valid=false;};},[project,revision]);
+ const pending=!!task&&['queued','running','stopping'].includes(task.status);
+ useEffect(()=>{if(!pending||!task)return;let valid=true,inFlight=false;const timer=setInterval(async()=>{if(inFlight)return;inFlight=true;try{const next=await api<Task>(`/projects/${project}/object-specifications/tasks/${task.id}`);if(valid){setTask(next);if(next.preview&&next.preview.base_revision===revision){setReport(next.preview);setEdited(true);}if(next.error)setError(next.error);}}catch(e){if(valid)setError((e as Error).message);}finally{inFlight=false;}},2000);return()=>{valid=false;clearInterval(timer);};},[project,revision,task?.id,pending]);
+ async function act(fn:()=>Promise<void>){if(busy)return;setBusy(true);setError('');try{await fn();}catch(e){if(alive.current)setError((e as Error).message);}finally{if(alive.current)setBusy(false);}}
+ const blocked=disabled||busy||pending;
+ function change(id:string,value:Partial<Spec>){setEdited(true);setReport(r=>r&&({...r,items:r.items.map(row=>row.group_id===id?{...row,specification:{...row.specification,...value}}:row)}));}
+ const rows=report?.items.filter(r=>selected.includes(r.group_id))||[];
+ const missing=rows.filter(r=>!kept.includes(r.group_id)&&!r.structural&&!r.specification.purpose);
+ const incomplete=rows.filter(r=>!kept.includes(r.group_id)&&doubts(r,report!).includes('material'));
+ const specifications=()=>Object.fromEntries((report?.items||[]).filter(r=>selected.includes(r.group_id)&&!kept.includes(r.group_id)).map(r=>[r.group_id,r.specification]));
+ return <section className="object-specifications">
+ <div className="object-actions"><button disabled={blocked||!report||!selected.length} onClick={()=>act(async()=>{const t=await api<Task>(`/projects/${project}/object-specifications/understand`,'POST',{base_revision:revision,operation_id:crypto.randomUUID().replaceAll('-',''),model:model||null,group_ids:selected.filter(id=>!kept.includes(id)),style,object_styles:objectStyles,specifications:specifications()});if(alive.current)setTask(t);})}>Agent 整理用途、方向與風格</button>
+ <details className="spec-filters"><summary>篩選疑點 {checks.length?`（${checks.length}）`:'（顯示全部）'}</summary><div>{Object.entries(filters).map(([key,label])=><label className="inline-check" key={key}><input type="checkbox" checked={checks.includes(key as Filter)} onChange={e=>setChecks(v=>e.target.checked?[...v,key as Filter]:v.filter(x=>x!==key))}/>{label} · {rows.filter(r=>doubts(r,report!).includes(key as Filter)).length}</label>)}<button onClick={()=>setChecks([])}>顯示全部</button></div></details></div>
+ <small>用途先由現有資料推定。Agent 會使用選定範圍、需求與風格；尺寸保持原值。未知方向可稍後調整。</small>
+ {pending&&<p role="status">{task?.phase||'等待 Agent 整理'}…</p>}{error&&<p role="alert">{error}</p>}
+ {!report&&<p>讀取物件規格…</p>}
+ {report&&<><p role="status">{rows.length} 件；用途待確認 {missing.length} 件；本次保留原件 {rows.filter(r=>kept.includes(r.group_id)).length} 件。{edited?'修改將隨開始配置一起保存。':''}</p>
+ <div className="batch-object-list spec-list">{rows.filter(r=>!checks.length||doubts(r,report).some(i=>checks.includes(i))).map(row=><details key={row.group_id} className="batch-object"><summary>{row.name} · {purposes[row.specification.purpose]|| (row.structural?'結構材質':'用途待核對')} · {kept.includes(row.group_id)?'本次保留原件':doubts(row,report).map(i=>filters[i]).join('／')||'規格已整理'}</summary>
+ <ObjectVisual id={row.group_id} name={row.name} onInspect={()=>onInspect(row.group_id)}/>
+ <fieldset disabled={blocked}><label className="inline-check"><input type="checkbox" checked={kept.includes(row.group_id)} onChange={e=>onKeep(row.group_id,e.target.checked)}/>本次保留原件（不搜尋、不替換）</label>
+ <div className="batch-columns"><label>用途<select disabled={row.structural||row.purpose_reason==='已確認規格'} value={row.specification.purpose} onChange={e=>change(row.group_id,{purpose:e.target.value})}><option value="">尚不確定</option>{Object.entries(purposes).map(([id,name])=><option key={id} value={id}>{name}</option>)}</select><small>{row.agent_reason||row.purpose_reason}</small></label>
+ {!row.structural&&<label>使用側<select value={row.specification.front} onChange={e=>change(row.group_id,{front:e.target.value,front_source:'user'})}>{Object.entries({unknown:'尚不確定，保留目前姿態','+X':'平面向右 +X','-X':'平面向左 −X','+Y':'平面向上 +Y','-Y':'平面向下 −Y',multiple:'多側使用'}).map(([id,name])=><option key={id} value={id}>{name}</option>)}</select><small>{row.use_side}</small><small>{row.direction_reason}</small></label>}</div>
+ {!row.structural&&<label>候選模型尺寸<select value={row.specification.dimension_fit||'adapt'} onChange={e=>change(row.group_id,{dimension_fit:e.target.value as 'uniform'|'adapt'})}><option value="adapt">已確認桌櫃可改尺寸；未知尺寸依用途適配</option><option value="uniform">僅等比縮放，不改造模型</option></select><small>保留確認數字。未知／估計高度不要求填滿；已確認桌櫃可局部伸展，超限或碰撞則改試候選。</small></label>}
+ <label>物件風格<input maxLength={2000} value={row.specification.style||''} placeholder={objectStyles[row.group_id]||style||'沿用物件原有風格'} onChange={e=>change(row.group_id,{style:e.target.value})}/></label>
+ <details><summary>尺寸來源與材質策略</summary>{row.plan_evidence&&<p>圖面依據：{row.plan_evidence}</p>}<p>尺寸 X／Y／Z：{row.dimensions?row.dimensions.map(v=>(v*100).toFixed(1)).join(' × ')+' cm':'未取得'}<br/>{row.dimension_origin} · {({confirmed:'已確認',estimated:'概念估計',envelope:'可用範圍',unknown:'來源未知'} as Record<string,string>)[row.dimension_source]}<br/>{row.dimension_evidence}</p>
+ <label>材質策略<select value={row.specification.material_policy} onChange={e=>change(row.group_id,{material_policy:e.target.value})}><option value="global">跟隨全案風格</option><option value="original">沿用原模型材質</option><option value="specified">指定部位材質</option></select></label>{row.specification.material_policy==='specified'&&<><label>部位<input value={row.specification.material_part} placeholder="例如：桌面" onChange={e=>change(row.group_id,{material_part:e.target.value})}/></label><label>材質描述<input value={row.specification.material_description} placeholder="例如：淺橡木" onChange={e=>change(row.group_id,{material_description:e.target.value})}/></label></>}
+ {row.specification.material_policy!=='global'&&<small>跨模型部位對應尚需人工核對；目前會保留原件與候選，不自動改掉原材質。</small>}</details></fieldset></details>)}</div>
+ {checks.length>0&&!rows.some(r=>doubts(r,report).some(i=>checks.includes(i)))&&<p>沒有符合篩選的疑點。</p>}
+ <footer>{missing.length>0&&<p role="alert">請填用途或勾選「本次保留原件」：{missing.map(r=>r.name).join('、')}</p>}{incomplete.length>0&&<p role="alert">請補齊指定材質的部位與描述。</p>}{report.base_revision!==revision&&<p role="alert">設計已更新，正在重新讀取規格。</p>}
+ <small>免費優先、保留備選連結。找不到合適素材時，由 Agent 設計概念家具，檢查失敗最多修正三版；仍不合格則保留原件。此操作使用 Agent 額度。</small>
+ <button className="primary" disabled={blocked||!!missing.length||!!incomplete.length||!rows.length||rows.length>100||report.base_revision!==revision} onClick={()=>act(async()=>{const saved=await api<Revision>(`/projects/${project}/object-specifications/save`,'POST',{base_revision:report.base_revision,specifications:specifications()});if(!saved.revision)throw new Error('規格保存未完成');if(alive.current){setReport({...report,base_revision:saved.revision});setEdited(false);onAccept(saved);await onStart(saved.revision);}})}>開始配置</button></footer></>}
+ </section>;
+}

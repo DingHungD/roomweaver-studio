@@ -11,7 +11,7 @@ from interior.workbench.jobs import Jobs
 from interior.workbench.studio.plan_import import parse_dxf, suggested_settings, check_plan
 from interior.workbench.studio.backup import restore_backup
 
-EXAMPLE=Path(__file__).parents[1]/'examples/dxf-courtyard/courtyard.dxf'
+EXAMPLE=Path(__file__).parents[1]/'tests/fixtures/legacy-examples/dxf-courtyard/courtyard.dxf'
 
 
 def test_example_contract_and_scale():

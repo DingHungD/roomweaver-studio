@@ -1,6 +1,6 @@
 # Third-party notices
 
-`examples/daylight-apartment/assets/` 包含 BlenderKit 免費 **CC0-1.0** 家具、材質與城市 HDRI，作者、來源、版本與 SHA-256 見該目錄 `manifest.json`。生成的 `.blend`／`.glb` 包含這些素材的衍生版本；其原始授權維持 CC0，原創程式與場景組合則採 MIT。沒有將 Royalty Free 素材納入公開資產包。完整來源見 [日光公寓範例](examples/daylight-apartment/README.md)。
+`examples/from-3d/assets/` 包含 BlenderKit 免費 **CC0-1.0** 家具、材質與城市 HDRI，作者、來源、版本與 SHA-256 見該目錄 `manifest.json`。生成的 `.blend`／`.glb` 包含這些素材的衍生版本；其原始授權維持 CC0，原創程式與場景組合則採 MIT。沒有將 Royalty Free 素材納入公開資產包。完整來源見 [3D 範例](examples/from-3d/README.md)。
 
 程式及原創合成範例採 MIT。第三方套件與外部程式保留各自授權，不因安裝本工具而改成 MIT。
 

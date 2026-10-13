@@ -17,6 +17,8 @@ def execute(project, operation, parameters):
     output = (root/parameters['output']).resolve()
     if not output.is_relative_to(root/'runs/interior-studio'):
         raise ValueError('無效輸出目錄')
+    # Environment failures must precede downloads and model processing.
+    executable=blender_executable()
     output.mkdir(parents=True, exist_ok=True)
     if shutil.disk_usage(output).free < 6*1024**3:
         raise ValueError('磁碟可用空間少於 6 GB；尚未開始渲染')
@@ -28,14 +30,27 @@ def execute(project, operation, parameters):
         native=model_dir/'model.blend';model=read_json(model_dir/'model.json')
         actual=digest(native)
         if actual!=model['native_sha256']:raise ValueError('原工作模型已變動')
-        asset=parameters['asset'];asset_path=output/'asset.blend'
-        provenance=download(asset,asset_path,parameters['job_id'])
-        write_json(output/'asset-provenance.json',provenance)
+        if parameters.get('generated'):
+            asset=dict(kind='generated',recipe=parameters['generated']);asset_path=native
+            write_json(output/'generated-provenance.json',parameters['generated'])
+        elif parameters.get('preview_only'):
+            asset=dict(kind='preview');asset_path=native
+        elif parameters.get('restore_revision'):
+            from .asset_matching import object_context
+            prior=read_json(root/'workflows/interior-studio/revisions'/f"{parameters['restore_revision']}.json")
+            prior_dir=root/'runs/interior-studio'/prior['scene']['model_id']
+            asset_path=prior_dir/'model.blend'
+            if digest(asset_path)!=read_json(prior_dir/'model.json')['native_sha256']:raise ValueError('待回復原件雜湊不符')
+            asset=dict(kind='restore',context=object_context(prior['scene'],parameters['group_id']))
+        else:
+            asset=parameters['asset'];asset_path=output/'asset.blend'
+            provenance=download(asset,asset_path,parameters['job_id'])
+            write_json(output/'asset-provenance.json',provenance)
         preview=output/'source.glb';preview_actual=None
         request=dict(mode='prepare',source=str(native),preview=str(preview),source_sha256=actual,
             output=str(output),model_id=parameters['job_id'],asset=dict(asset,path=str(asset_path)),
-            design=scene,target_group=parameters['group_id'],target_object=parameters.get('object_id'),
-            asset_rotation=parameters['rotation'],auto_fit=parameters.get('auto_fit',False),task_id=parameters['task_id'])
+            design=scene,target_group=parameters['group_id'],target_object=parameters.get('object_id'),target_objects=parameters.get('object_ids'),
+            asset_requirements=parameters.get('asset_requirements'),dimension_fit=parameters.get('dimension_fit','uniform'),repair_scale=parameters.get('repair_scale',1),asset_rotation=parameters['rotation'],auto_fit=parameters.get('auto_fit',False),task_id=parameters['task_id'])
         source={}
     elif operation == 'studio.prepare':
         source = parameters['source']
@@ -96,7 +111,7 @@ def execute(project, operation, parameters):
         payload['stop_file']=str(output/'stop-requested.json')
         write_json(folder/'request.json',payload)
         with (folder/'blender.log').open('w',encoding='utf-8') as log:
-            process=subprocess.Popen([blender_executable(),'--background','--disable-autoexec','--python-exit-code','1',
+            process=subprocess.Popen([executable,'--background','--disable-autoexec','--python-exit-code','1',
                 '--python',str(script),'--',str(folder/'request.json')],stdout=log,stderr=log,
                 creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
             from .processes import identity
@@ -126,7 +141,7 @@ def execute(project, operation, parameters):
         if replacing:
             original_model=read_json(model_dir/'model.json')
             model['ancestor_model_ids']=[scene['model_id'],*original_model.get('ancestor_model_ids',[])]
-            model['replacement']=dict(source_revision=parameters['revision'],group_id=parameters['group_id'],asset_id=asset['asset_id'])
+            model['replacement']=dict(source_revision=parameters['revision'],group_id=parameters['group_id'],asset_id=asset.get('asset_id'),restore_revision=parameters.get('restore_revision'))
         model['native_sha256'] = digest(output/'model.blend')
         model['preview_sha256'] = digest(output/'model.glb')
         write_json(output/'model.json', model)

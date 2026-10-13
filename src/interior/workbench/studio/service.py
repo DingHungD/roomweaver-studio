@@ -90,6 +90,15 @@ class Studio:
         source = self.configured_source(project_id)
         return self.jobs.submit_studio(project_id, 'prepare', {'source': source}, operation_id)
 
+    def regroup(self, project_id, base_revision):
+        from .grouping import regroup_structure
+        with self.store.lock:
+            current=self.current(project_id)
+            if current['revision']!=base_revision:raise Conflict('請先保存最新編輯再整理分組')
+            scene,_=regroup_structure(current['scene'],self.groups(project_id,current['scene']['model_id']))
+            if scene==current['scene']:return current
+            return self.save(project_id,scene,base_revision)
+
     def check_render_readiness(self, project_id, model_id, lighting_setup=None):
         report=self.model(project_id,model_id).get('render_readiness',{})
         if lighting_setup and lighting_setup.get('enabled') and not report.get('missing_images'):

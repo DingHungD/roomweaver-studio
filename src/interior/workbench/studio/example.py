@@ -19,7 +19,7 @@ def register_example(workspace: Path, directory: Path, identifier='DAYLIGHT'):
         files[key] = path
     store = Store(workspace, workspace/'artifacts/workbench/local')
     # create_project rejects duplicate IDs before touching their files.
-    store.create_project(dict(id=identifier, name=manifest['name'], kind='synthetic'))
+    store.create_project(dict(id=identifier, name=manifest['name'], kind=manifest.get('kind', 'synthetic')))
     root = store.project(identifier).root
     destination = root/'sources/example'
     destination.mkdir(parents=True)
@@ -37,7 +37,7 @@ def register_example(workspace: Path, directory: Path, identifier='DAYLIGHT'):
     write_json(root/'workflows/interior-studio/source.json', source)
     write_json(destination/'manifest.json', manifest)
     (root/'README.md').write_text(
-        '# '+manifest['name']+'\n\nSynthetic example; CC0 source assets, see the repository asset manifest.\n'
+        '# '+manifest['name']+'\n\nTeaching example; see the copied manifest for origin and the repository asset manifest for licenses.\n'
         'Original copies: sources/example/. Native HDRI and camera configuration are preserved.\n'
         'Open the configured model in the import page, then edit and confirm before rendering.\n', encoding='utf-8')
     return dict(id=identifier, status='registered', imported=False)

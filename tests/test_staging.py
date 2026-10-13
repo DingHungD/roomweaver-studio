@@ -94,7 +94,7 @@ def test_apply_uses_normal_batch_and_same_click_cannot_duplicate(tmp_path):
     try:
         batches=AssetBatch(AssetMatching(studio,BatchAgents()));service=Staging(studio,batches)
         # Test setup uses synthetic actual scene names; no case data.
-        sc=copy.deepcopy(first['scene']);sc['groups'][0]['name']='餐桌'
+        sc=copy.deepcopy(first['scene']);sc['groups'][0]['name']='餐桌';sc['groups'][0]['method']='individual'
         saved=studio.save('ASSETS',sc,first['revision']);gid=sc['groups'][0]['id']
         body=request('decor').model_copy(update={'base_revision':saved['revision']})
         with patch('interior.workbench.studio.staging.world_bounds',return_value={gid:([0,0,0],[1.4,.8,.75])}):p=service.preview('ASSETS',body)

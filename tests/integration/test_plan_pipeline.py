@@ -21,7 +21,7 @@ def test_dxf_to_scene_and_real_render(tmp_path):
     with patch.object(Jobs,'loop',return_value=None):jobs=Jobs(store)
     try:
         studio=Studio(store,jobs);plans=PlanIntake(studio)
-        source=REPO/'examples/dxf-courtyard/courtyard.dxf'
+        source=REPO/'tests/fixtures/legacy-examples/dxf-courtyard/courtyard.dxf'
         packet=plans.create('PLAN',source.name,source.read_bytes())
         job=plans.build('PLAN',packet['id'],BuildPlan(plan_revision=packet['revision']))
         request=read_json(store.state_dir/'jobs'/job['id']/'request.json')
@@ -31,7 +31,7 @@ def test_dxf_to_scene_and_real_render(tmp_path):
         folder=studio.root('PLAN')/job['output']
         assert result['handoff']['status']=='passed'
         assert (folder/'model.blend').is_file() and (folder/'model.glb').is_file()
-        assert len(revision['scene']['groups'])==12  # 5 walls + floor + 4 furniture + 2 windows
+        assert len(revision['scene']['groups'])==8  # walls + floor + 4 independent furniture + 2 windows
         check_script=REPO/'tests/fixtures/visualization/check_plan_apertures.py'
         proof=subprocess.run([blender_executable(),'--background','--disable-autoexec','--python-exit-code','1',str(folder/'model.blend'),'--python',str(check_script)],capture_output=True,timeout=90)
         (folder/'apertures.log').write_bytes(proof.stdout+proof.stderr)

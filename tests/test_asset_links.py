@@ -13,9 +13,11 @@ def test_link_parser_restricts_host_path_and_identity():
 
 def test_direct_link_deduplicates_without_agent_and_requires_explicit_download(tmp_path):
     studio,jobs,rev=environment(tmp_path);agents=FakeAgents();service=AssetMatching(studio,agents)
-    body=LinkAsset(base_revision=rev['revision'],group_id=rev['scene']['groups'][0]['id'],operation_id='direct-link-test',url=f'https://www.blenderkit.com/asset-gallery-detail/{FREE}/')
+    # Select a furniture instance explicitly: structural grouping changes list order.
+    group=next(g for g in rev['scene']['groups'] if 'sofa' in g['children'])
+    body=LinkAsset(base_revision=rev['revision'],group_id=group['id'],operation_id='direct-link-test',url=f'https://www.blenderkit.com/asset-gallery-detail/{FREE}/')
     try:
-        with patch.object(catalog,'detail',return_value=catalog.normalize(raw())) as lookup:
+        with patch.object(catalog,'detail',return_value=dict(catalog.normalize(raw()),name='Synthetic sofa')) as lookup:
             result=service.from_link('ASSETS',body);again=service.from_link('ASSETS',body)
         assert again['id']==result['id'] and lookup.call_count==1 and agents.calls==0
         assert not result['replacement'] and result['target']['source']=='link'

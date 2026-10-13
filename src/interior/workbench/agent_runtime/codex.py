@@ -1,4 +1,4 @@
-"""Codex 0.154.0 stdio JSON-RPC adapter with deadlines and explicit interruption."""
+"""Codex stdio JSON-RPC adapter with catalog validation and bounded tasks."""
 from __future__ import annotations
 import json
 import os
@@ -8,6 +8,35 @@ import shutil
 import subprocess
 import threading
 import time
+
+
+class ModelAccessError(ValueError):
+    """A model request is rejected; retrying each object cannot fix access."""
+
+
+def select_model(status, requested=None):
+    models = status.get('models', [])
+    selected = next((m for m in models if
+        requested in (m.get('id'), m.get('model'))), None) if requested else next(
+            (m for m in models if m.get('isDefault')), None)
+    if not selected:
+        raise ModelAccessError(f'模型 {requested or "（預設）"} 不在目前 Codex 模型清單中。'
+            '請開啟「Agent 與能力測試」，重新檢查登入與模型、選擇模型並測試連線後重試。')
+    return selected
+
+
+def turn_error(error, model):
+    message = error.get('message', str(error)) if isinstance(error, dict) else str(error)
+    try:
+        detail = json.loads(message)
+        message = detail.get('error', {}).get('message', message)
+    except (ValueError, TypeError, AttributeError):
+        pass
+    if 'model' in message.lower() and any(word in message.lower() for word in
+            ('not supported', 'not found', 'does not exist', 'do not have access')):
+        return ModelAccessError(f'目前登入方式無法使用模型 {model}。請到「Agent 與能力測試」'
+            '重新選擇模型並測試連線；本批次已停止，不代表找不到素材，也不會切換付費 API。')
+    return ValueError('Codex 任務未完成：' + message)
 
 
 class CodexRuntime:
@@ -72,11 +101,25 @@ class CodexRuntime:
 
     def status(self):
         account = self.request('account/read', {'refreshToken': False})
-        models = self.request('model/list', {})
-        return {'version': self.version, 'authenticated': bool(account.get('account')),
-            'auth_type': (account.get('account') or {}).get('type'), 'models': models.get('data', [])}
+        models, cursor, seen = [], None, set()
+        while True:
+            page = self.request('model/list', {'cursor': cursor} if cursor else {})
+            models.extend(page.get('data', []))
+            cursor = page.get('nextCursor')
+            if not cursor:
+                break
+            if cursor in seen:
+                raise ValueError('Codex 模型清單分頁異常，請重新連線')
+            seen.add(cursor)
+        default = next((m for m in models if m.get('isDefault')), {})
+        self.catalog = {'version': self.version, 'authenticated': bool(account.get('account')),
+            'auth_type': (account.get('account') or {}).get('type'), 'models': models,
+            'default_model': default.get('model') or default.get('id')}
+        return self.catalog
 
     def run(self, prompt, *, model=None, image=None, images=None, mcp=None, timeout=180, on_event=None):
+        selected = select_model(getattr(self, 'catalog', None) or self.status(), model)
+        model = selected.get('model') or selected['id']
         # Override inherited MCP servers per thread; never mutate global user config.
         effective = self.request('config/read', {'includeLayers': False}).get('config', {})
         config = {'features.shell_tool': False, 'features.unified_exec': False,
@@ -120,7 +163,7 @@ class CodexRuntime:
                 if event.get('method') == 'turn/completed':
                     result = params['turn']
                     if result.get('status') != 'completed':
-                        raise ValueError('Codex 任務未完成：' + str(result.get('error') or result.get('status')))
+                        raise turn_error(result.get('error') or result.get('status'), model)
                     return dict(thread_id=self.thread_id, turn_id=self.turn_id,
                         text='\n'.join(messages), model=thread.get('model'), version=self.version)
             self.stop()

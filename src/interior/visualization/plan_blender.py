@@ -23,6 +23,7 @@ def build_plan(request):
         obj.name=f"{item['role']}-{item['id']}__{suffix}"
         obj['studio_id']=uuid5(namespace,item['id']+'/'+suffix).hex
         obj['assembly_id']=item['name']+' ['+item['id']+']'
+        obj['studio_role']=item['role']
         obj['source_entity_id']=item['id'];obj['room_id']='interior'
         return obj
 
@@ -140,5 +141,8 @@ def build_plan(request):
     scene.view_settings.view_transform='AgX';scene.view_settings.exposure=0
     scene.render.engine='CYCLES';scene.cycles.samples=32;scene.cycles.use_denoising=True
     # Geometry-only browser derivative. Native lights/world are retained by prepare.
+    from surface_uv import ensure_uv
+    for obj in scene.objects:
+        if obj.type=='MESH' and obj.get('studio_role') in ('wall','floor'):ensure_uv(obj)
     bpy.ops.export_scene.gltf(filepath=request['preview'],export_format='GLB',export_extras=True,export_lights=False,export_cameras=False)
     return dict(openings=cuts,source='confirmed-plan',source_origin_metres=plan['source_origin_metres'],notes=['概念白模／通用占位家具，無天花；照明為提案，請在光影頁確認。'])

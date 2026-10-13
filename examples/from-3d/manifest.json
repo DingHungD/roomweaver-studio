@@ -1,0 +1,42 @@
+{
+  "name": "Project04 teaching apartment",
+  "kind": "educational-derivative",
+  "units": "metres",
+  "native": "project04-apartment.blend",
+  "preview": "project04-apartment.glb",
+  "provenance": {
+    "source": "Project04 electronic transcription v5, 2026-10-01",
+    "sha256": "9199f32f083f6709306505c0ea853bf4a21a3555beae72d8ffc30077f59b6181",
+    "note": "Teaching derivative, not the current approved design. Heights, unlabelled openings and furniture are illustrative; no construction approval implied."
+  },
+  "suggested_viewpoints": [
+    {
+      "name": "Living",
+      "eye": [
+        6.25,
+        2.12,
+        1.5
+      ],
+      "yaw": -131.2,
+      "pitch": -10,
+      "lens": 25
+    },
+    {
+      "name": "Master",
+      "eye": [
+        6.25,
+        3.3,
+        1.5
+      ],
+      "yaw": 135,
+      "pitch": 0,
+      "lens": 28
+    }
+  ],
+  "sha256": {
+    "project04-apartment.blend": "c0ab16c2fff34fcdea0821aea7f38d021f2235b3e266f1d2a61d9ddfef948e25",
+    "project04-apartment.glb": "ceba18e377535c14ac8b83fbe6bb5b8cbfa06fa41a00c0e14bb20e23f5b82d1d",
+    "preview-living.png": "13c70530e849f002c17c8d6f7597913bc93a2b9536db8650c2d9fb6a2b725ca2",
+    "layout.png": "2e455559993cb9fa2b61d12b85767470187ec8dadf50179c77469e4e3299c88e"
+  }
+}

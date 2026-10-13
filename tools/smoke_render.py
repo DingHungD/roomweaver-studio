@@ -14,7 +14,7 @@ from interior.workbench.server import create_app
 
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--workspace',type=Path,required=True)
-parser.add_argument('--example',type=Path,default=Path('examples/demo-apartment'))
+parser.add_argument('--example',type=Path,default=Path('tests/fixtures/legacy-examples/demo-apartment'))
 parser.add_argument('--native',action='store_true',help='Use the verified native/GLB pair and preserve HDRI')
 args=parser.parse_args()
 root=args.workspace.resolve()

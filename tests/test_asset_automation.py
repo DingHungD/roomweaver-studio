@@ -11,11 +11,11 @@ from test_asset_batch import BatchAgents
 
 def setup(tmp_path):
     studio,jobs,first=environment(tmp_path);agents=BatchAgents();assets=AssetMatching(studio,agents);batch=AssetBatch(assets)
-    result=batch.start('ASSETS',BatchRequest(base_revision=first['revision'],operation_id='auto-test-all',auto_apply=False))
+    result=batch.start('ASSETS',BatchRequest(base_revision=first['revision'],operation_id='auto-test-all',auto_apply=False,auto_repair=False,procedural_fallback=False))
     identifier=result['id'];path=batch.folder('ASSETS')/identifier
     payload=read_json(path/'input.json')
     for t in payload['targets']:
-        a=normalize(raw());a['kind']=t['kind']
+        a=normalize(raw());a['kind']=t['kind'];a['name']='Synthetic sofa' if t['kind']=='model' else 'Synthetic plaster'
         write_json(batch.assets.folder('ASSETS')/t['task_id']/'result.json',dict(status='passed',candidates=[a]))
     agents.tasks[identifier]['status']='passed'
     write_json(path/'placement.json',dict(status='matching',revision=first['revision'],items={},stop=False))
@@ -65,6 +65,47 @@ def test_paid_only_is_not_downloaded_and_confirmation_requires_explicit_keep(tmp
         assert batch.get('ASSETS',identifier)['confirmed']
     finally:jobs.close()
 
+
+def test_agent_failure_stops_placement_even_with_earlier_candidates(tmp_path):
+    studio,jobs,first,batch,identifier,payload=setup(tmp_path)
+    try:
+        batch.agents.tasks[identifier].update(status='failed',error='模型不支援')
+        assert not batch.automation.tick('ASSETS',identifier)
+        result=batch.get('ASSETS',identifier)
+        assert result['status']=='failed' and result['error']=='模型不支援'
+        assert not jobs.list('ASSETS')
+        assert studio.current('ASSETS')['revision']==first['revision']
+    finally:jobs.close()
+
+
+@pytest.mark.parametrize('legacy_pending_job',[False,True])
+def test_missing_blender_pauses_and_retries_same_candidate_without_new_search(tmp_path,legacy_pending_job):
+    studio,jobs,first,batch,identifier,payload=setup(tmp_path)
+    try:
+        runner=batch.automation
+        assert runner.tick('ASSETS',identifier)
+        job=jobs.list('ASSETS')[0]
+        job.update(status='failed',error='ValueError: 找不到 Blender，請設定 INTERIOR_BLENDER');jobs.write(job)
+        assert not runner.tick('ASSETS',identifier)
+        state=read_json(runner.path('ASSETS',identifier))
+        assert state['status']=='paused' and len(jobs.list('ASSETS'))==1
+        # Also exercise recovery of the old version's exhausted-candidates records.
+        row=state['items'][payload['targets'][0]['task_id']]
+        row['status']='needs_attention';state['status']='review'
+        if legacy_pending_job:
+            row.update(status='applying',job_id=job['id'],attempts=[])
+        write_json(runner.path('ASSETS',identifier),state)
+        searches=batch.agents.calls
+        with patch('interior.workbench.studio.asset_automation.threading.Thread.start'):
+            runner.start('ASSETS',identifier,first['revision'])
+        assert runner.tick('ASSETS',identifier)
+        assert batch.agents.calls==searches
+        state=read_json(runner.path('ASSETS',identifier));row=state['items'][payload['targets'][0]['task_id']]
+        assert len(jobs.list('ASSETS'))==2 and row['job_id']!=job['id']
+        assert row['asset_id']==row['attempts'][0]['asset_id']
+        assert row['attempts'][0]['job_id']==job['id']
+    finally:jobs.close()
+
 def test_changed_scene_pauses_and_does_not_override_user_edit(tmp_path):
     studio,jobs,first,batch,identifier,payload=setup(tmp_path)
     try:
@@ -91,7 +132,7 @@ def test_alternative_stays_valid_after_same_list_replacement(tmp_path):
 def test_inventory_uses_children_and_never_replaces_window_geometry(tmp_path):
     studio,jobs,first,batch,identifier,payload=setup(tmp_path)
     try:
-        scene=copy.deepcopy(first['scene']);g=scene['groups'][0];g['name']='unnamed assembly'
+        scene=copy.deepcopy(first['scene']);g=scene['groups'][0];g['name']='unnamed assembly';g['method']='individual'
         for o in scene['objects']:
             if o['id'] in g['children']:o['name']='chair seat'
         assert inventory(scene)[0]['category']=='chair'

@@ -1,6 +1,6 @@
 # Roomweaver Studio
 
-新增功能：[通用手繪確認、答覆後修正與概念家具編輯](docs/GENERIC_INTAKE.md)。兩張獨立合成圖在 [hand-drawn-study](examples/hand-drawn-study/README.md)，可在 UI 內練習完整確認流程。
+新增功能：[通用手繪確認、答覆後修正與概念家具編輯](docs/GENERIC_INTAKE.md)。三個現行範例見 [圖片、DXF、3D 匯入手冊](examples/README.md)，使用同一份 Project04 教學衍生平面。
 
 Local interior editing, lighting and Blender rendering — 本機室內模型編輯、光影配置與全景出圖工作室。
 
@@ -8,13 +8,14 @@ Local interior editing, lighting and Blender rendering — 本機室內模型編
 
 **早期開發版，介面為繁體中文。** 完整驗證環境：Windows、Python 3.11.9、Node.js 24.19.0、Blender 4.5.14 LTS。其他作業系統尚未完成端到端驗證。
 
-![日光公寓的實際 Cycles 渲染](examples/daylight-apartment/preview-living.png)
+![Project04 教學公寓的實際 Cycles 渲染](examples/from-3d/preview-living.png)
 
 上圖使用隨附日光公寓、BlenderKit 免費 CC0 家具與貼圖，經 Cycles 實際渲染。窗外為示意城市環境，非基地照片。完整光影用 native Blender／GLB 配對重現；單獨 GLB 不保留 HDRI world。
 
 ## 功能與格式
 
 - 匯入 GLB，保留原件，建立工作副本。
+- 三種匯入共用分組規則：牆壁一組、地板一組、每件家具獨立；材質一鍵配置每組搜尋一次，雙擊後仍可細調子元件。舊案可在一鍵配置內按「整理牆地分組」。
 - 在 2D 平面或 3D 選取整組家具；單物件展示可選子物件，修改基本色、粗糙度及材質需求。
 - 平移／水平旋轉／刪除家具、配置或綁定光源、預覽近似光影。
 - 編輯畫布鋪滿可用區域：左側工作區、上方工具列、半透明詳細編輯欄可各自收合，並記住偏好。專注模式可暫時收起面板，離開或按 Esc 恢復；另提供全螢幕與置中顯示。收合保留選取、縮放與鏡頭，不重新載入模型。
@@ -23,6 +24,8 @@ Local interior editing, lighting and Blender rendering — 本機室內模型編
 - 在 3D 單物件展示請 Agent [配對 BlenderKit 家具與材質](docs/BLENDERKIT.md)：免費優先、付費候補；保留來源網址，選定後在工具內下載並替換。
 - 在「光源」預覽並配置室外日光、天花燈具及綁定光源；在「裝飾物」的自動建議中安排桌面用品、花瓶、鍋具與地毯，再由 Agent 找免費 BlenderKit 模型。位置依模型範圍與用途規則推算，需在 2D／3D 核對；不是自動完成室內設計驗收。
 - 「一鍵配置」可按整屋、空間或家具類型批次配對；支援共用／個別文字與圖片風格。自動下載免費候選並建立第一版，備選保留連結；全部家具確認後才清理未使用模型。
+- 配置視窗分為「範圍與風格、物件配置、輸出結果」；Agent 整理用途、尺寸來源與使用側，未知尺寸不強迫符合占位高度。找不到適用候選時，可為支援用途生成概念家具，依檢查錯誤有限次修正。
+- 單物件「選擇並替換」也會核對尺寸與碰撞；必要時請 Agent 修正同一候選，通過後採用新修訂。已確認尺寸、原件與必要家具保留，不能安全修正會列出原因。
 - 拖曳觀看點、設定多個效果圖方向與雙向連結。
 - 確認後產生 2:1 全景及透視效果圖，保存修訂、工作日誌及舊成果。
 - 選用 Codex App Server 執行材質候選、試圖判讀及受控瀏覽器能力測試。
@@ -35,7 +38,7 @@ Local interior editing, lighting and Blender rendering — 本機室內模型編
 | `.dxf`（2D） | 新增「從電子平面建立」：確認單位、用途與高度後建模；支援範圍見下方 |
 | `.dwg`／`.dwf`／`.skp` | 尚未提供直接入口；先用支援該格式的建模軟體整理並匯出受支援 DXF 或 GLB |
 | 燈具模型 | 網格外觀不等於光源，需另有實際光源資料或在光源頁新增 |
-| 材質連結 | 保存參考網址與描述；候選採用目前修改基本色與粗糙度，不是完整 PBR 下載器 |
+| 材質連結 | 一般網址保存參考與描述；BlenderKit 候選可下載原生材質，經 UV／貼圖預覽檢查後套用。程序材質的 GLB 預覽與 Cycles 可能有差異 |
 | 觀看點連結 | 保存導覽關係；尚未產生移動影片或完整公開導覽網站 |
 | Claude／Ollama | 尚未實作 adapter |
 
@@ -76,24 +79,27 @@ $env:INTERIOR_BLENDER = "C:\Program Files\Blender Foundation\Blender 4.5\blender
 .\.venv\Scripts\roomweaver.exe serve --workspace workspace
 ```
 
-開啟 **http://127.0.0.1:8765/**。`example` 登記完整日光公寓；到匯入頁選 DAYLIGHT 並點「使用案件現行模型」。它不自動確認設計或出圖。若只想建立空案件，改用 `init`。這些命令不需啟用 PowerShell 虛擬環境腳本。
+開啟 **http://127.0.0.1:8765/**。`example` 登記Project04 教學公寓；到匯入頁選 EXAMPLE_3D 並點「使用案件現行模型」。它不自動確認設計或出圖。若只想建立空案件，改用 `init`。這些命令不需啟用 PowerShell 虛擬環境腳本。
 
-每次重新開終端須重新設定 `INTERIOR_BLENDER`，或把 Blender 加入自己的 PATH。下次啟動只需設定路徑再執行 `serve`，不需重裝或重新匯入。8765 被占用時改成 `serve --workspace workspace --port 8875`，開啟 http://127.0.0.1:8875/ 。不要同時用兩個服務開啟同一份 workspace。
+若只使用 `INTERIOR_BLENDER`，每次重新開終端須重新設定，或把 Blender 加入自己的 PATH。建議首次啟動時加上 `--blender "C:\Program Files\Blender Foundation\Blender 4.5\blender.exe"`（替換為實際路徑），例如 `python -m interior.workbench serve --workspace workspace --blender "C:\path\to\blender.exe"`。工具會存入該工作區的 `artifacts/workbench/local/runtime.json`，下次相同工作區啟動會自動讀取，不需重新匯入。優先順序為 `--blender`、環境變數、已存設定、PATH；機器路徑不放入案件設計或 GitHub。`doctor --workspace workspace` 可檢查相同設定。8765 被占用時改成 `serve --workspace workspace --port 8875`，開啟 http://127.0.0.1:8875/ 。不要同時用兩個服務開啟同一份 workspace。
+
+素材配置找不到 Blender 時會在下載前失敗，整批暫停，不會逐一耗盡備選。修正路徑並重啟服務後，按「沿用候選重試配置」可使用既有候選重新建立工作；搜尋結果與失敗紀錄保留，不重新呼叫 Agent 搜尋。
 
 `requirements-lock.txt` 是已測試環境的 **constraints**，用 `-c` 限制版本。基本安裝不會因此安裝全部選用 Agent 套件。
 
-## 第一次操作：日光公寓
+## 第一次操作：三種範例入口
 
-[完整範例與資產來源](examples/daylight-apartment/README.md)包含免費 CC0 沙發、茶几、兩張木椅與床，以及木紋、布料、灰泥貼圖和城市 HDRI。另有窗簾褶皺、棉被垂邊、枕頭、櫃門接縫與陽台近景幾何。
+請先看 [三個範例的操作手冊](examples/README.md)：
 
-1. **匯入**：選擇 Daylight apartment · DAYLIGHT，點「使用案件現行模型」。這會建立原生 `.blend`／GLB 工作副本，保留 HDRI、面光與材質。
-2. **材質**：選沙發或椅子，雙擊進入單物件展示以檢視子物件。首次重現範例請保留原材質：目前「基本色」指派會替換該子物件的材質，包含原貼圖；不是保留 PBR 通道的調色器。
-3. **光源**：可直接保留現有日光。要微調時點「自動配置照明」，取得現有光源，保存後用 3D 光影預覽檢查。第一次不要啟用 Codex 判圖。
-4. **觀看點**：已附 Living、Bedroom，各有一個 32 mm 方向及雙向連結。可拖曳位置、修改方向，再用「3D 預覽」檢查。
-5. **確認**：點「確認編輯，前往整合輸出」。
-6. **出圖**：先選低解析，點「建立出圖工作」，核對 **2 張全景＋2 張效果圖**，再點「確認並開始渲染」。人工檢視後才提交正式尺寸。
+| 入口 | 檔案 | 用途 |
+|---|---|---|
+| 從圖片建立 | [project04-plan.png](examples/from-image/project04-plan.png) | Codex 辨識、確認尺寸與疑點後建立概念 3D |
+| 從電子平面建立 | [project04-plan.dxf](examples/from-dxf/project04-plan.dxf) | 確認用途、牆厚與高度後建立概念 3D |
+| 開啟 3D 模型 | [project04-apartment.glb](examples/from-3d/project04-apartment.glb) | 直接編輯既有家具、材質與燈光 |
 
-預覽為 1024×512 全景、640×480 效果圖；正式為 4096×2048 全景、1600×1200 效果圖。README 示意圖是範例腳本的 1440×1080、96 samples Cycles 出圖。改動後須保存並重新確認，舊成果會標示舊修訂。
+首次只想體驗編輯，建議從第三種開始。`example` 指令會登記原生 BLEND／GLB 配對，選 `EXAMPLE_3D` →「開啟 3D 模型」→「使用案件現行模型」，可保留 HDRI。直接上傳 GLB 可測試一般使用者的匯入流程。
+
+編輯後先確認光源與觀看點，再點「確認編輯，前往整合輸出」。低解析試渲染為 1024×512 全景、640×480 效果圖；正式為 4096×2048、1600×1200。這裡的原生預覽為 1200×900、48 samples Cycles。配對範例附 Living／Master 兩個觀看點，可出兩張全景和兩張效果圖。
 
 2D 用方向鍵／WASD 平移、滾輪縮放；3D 用 W/S 前後、A/D 水平側移、E 上升／Q 下降。雙擊物件進入單物件展示、拖曳旋轉；操作時先將焦點放在畫布。
 
@@ -105,9 +111,7 @@ $env:INTERIOR_BLENDER = "C:\Program Files\Blender Foundation\Blender 4.5\blender
 
 平面取景會優先依可辨識的室內地板範圍置中，排除窗外佈景、陽台及切面上方物件；切回 3D 會恢復顯示。自動範圍目前依 `floor`／地板／地坪與室外物件命名判斷；未找到地板時退回其餘可見模型範圍，不宣稱能辨識任意未命名模型的室內輪廓。
 
-也可直接上傳 [daylight-apartment.glb](examples/daylight-apartment/daylight-apartment.glb)，但 GLB 僅使用窗外近似燈光，不能重現完整 HDRI。要得到上圖的光影，請用上述配對入口。
-
-保留的 [輕量範例](examples/demo-apartment/README.md)僅作安裝與自動測試 fixture，適合很快測試 GLB 上傳，不是品質展示。
+GLB 不保存 Blender HDRI 世界設定；要保留原生光影，請用上述配對入口。三套範例使用相同平面，但圖片／DXF 的概念建模不會自動產生精細家具。舊合成案例已移至 `tests/fixtures/legacy-examples/`，供回歸測試與歷史證據使用。
 
 ## 使用自己的檔案
 
@@ -120,13 +124,13 @@ $env:INTERIOR_BLENDER = "C:\Program Files\Blender Foundation\Blender 4.5\blender
 3. 按「保存並檢查平面」，修正阻擋項目，勾選範圍確認，再按「確認平面，建立 3D」。
 4. 完成 GLB／BLEND 交接檢查後自動進入編輯。新增觀看點、確認光影，再進入整合輸出。
 
-可直接上傳 [courtyard.dxf](examples/dxf-courtyard/courtyard.dxf)，按 [範例手冊](examples/dxf-courtyard/README.md)測試。這是 7 × 6 m 的合成概念模型，用於驗證匯入流程，家具為占位而非精細家具資產。
+可直接上傳 [Project04 教學 DXF](examples/from-dxf/project04-plan.dxf)，依 [範例手冊](examples/from-dxf/README.md)測試；包含 69 個元件，家具為占位區域。
 
 支援 **ASCII DXF、模型空間、世界 XY 平面、LINE／無圓弧的 LWPOLYLINE**。牆可以是中心線或封閉凸輪廓；地板／家具為封閉凸輪廓；門窗以沿牆直線表達寬度。門窗會實際切出洞口，窗附簡易框；不建立門扇、天花或自動房間分區。提供可調整的初始照明。
 
 上限 10 MB、2,000 個模型空間元件、每元件 100 頂點、合計 20,000 頂點。TEXT／MTEXT／DIMENSION 明示略過；INSERT、圓弧、非零高程、凹輪廓及其他未支援內容會阻擋建模。請先在 CAD 展開圖塊、整理輪廓，不會將錯誤原件替換成範例。DXF 原始座標保留，生成模型以地板範圍移近原點，偏移記錄在 `plan-build.json`。
 
-平面設定保存在 `workflows/plan-import/` 的不可變修訂；重新開啟同案入口可續編。相同確認版本重送只建立一個工作；要修正或重試，先保存新修訂。原 DXF、舊修訂與模型不覆寫。PNG／JPG、DWG 與 SKP 的原生入口仍未開放。
+平面設定保存在 `workflows/plan-import/` 的不可變修訂；重新開啟同案入口可續編。相同確認版本重送只建立一個工作；要修正或重試，先保存新修訂。原 DXF、舊修訂與模型不覆寫。PNG／JPG 使用另一個圖片辨識入口；DWG 與 SKP 的原生入口仍未開放。
 
 ### 從 GLB 開始
 
@@ -154,7 +158,9 @@ $env:INTERIOR_BLENDER = "C:\Program Files\Blender Foundation\Blender 4.5\blender
 
 依 [官方 Codex CLI 說明](https://developers.openai.com/codex/cli) 安裝並登入自己的帳號，確認 CLI 提供 `app-server`。Windows 請把 `INTERIOR_CODEX` 指向原生 `codex.exe`，不要指向 npm 的 `.cmd` 包裝檔。例如 `$env:INTERIOR_CODEX = "C:\path\to\codex.exe"`，然後重啟服務。
 
-UI 開啟「Agent 與能力測試」，分別檢查連線、看圖、工具、瀏覽器操作。使用 [App Server stdio 協定](https://developers.openai.com/codex/app-server)，adapter 原先針對 CLI 0.154.0 撰寫；新版需再驗證。**本次獨立版尚未執行真實訂閱／模型測試。**
+UI 開啟「Agent 與能力測試」，分別檢查連線、看圖、工具、瀏覽器操作。使用 [App Server stdio 協定](https://developers.openai.com/codex/app-server)，adapter 原先針對 CLI 0.154.0 撰寫；新版需再驗證。
+
+未指定模型時，使用 Codex `model/list` 回傳的預設模型，明確傳入本次任務，不繼承其他工具寫入本機設定的模型名稱。模型清單不等於帳號權限驗證；一鍵配置會先執行一次短連線測試，再開始整批搜尋。拒絕的模型不會逐件重試、下載或改用付費 API；請重新檢查模型、測試連線後建立新配置，舊記錄保留。2026-10-12 已以 CLI 0.154.0／ChatGPT 登入實測 `gpt-6-astra` 文字連線成功；此項不代表其他帳號或工具／判圖測試通過。
 
 Codex 使用雲端模型與帳號額度，不是完全離線推論。啟用判圖會傳送試圖及任務所需資訊。憑證由 Codex 管理，不寫入 repo。失敗不自動切換其他付費供應者。Computer use 目前為專用 Playwright 瀏覽器與受控工具，不是控制整個 Windows 桌面。
 
@@ -189,8 +195,9 @@ src/interior/workbench/            API、案件、工作佇列
   orchestration/                  LangGraph 確認／續跑
   agent_runtime/                  Codex 與受控工具（選用）
 src/interior/visualization/        Blender／Cycles 與畫面檢查
-examples/daylight-apartment/       CC0 家具／貼圖、GLB/native 配對、渲染圖
-examples/demo-apartment/           最小測試 fixture
+examples/from-image/              圖片入口與補充說明
+examples/from-dxf/                DXF 入口與共同教學平面
+examples/from-3d/                 CC0 家具／貼圖、GLB/native 配對、渲染圖
 tests/                            單元、契約及合成 Blender 測試
 tools/                            開發者驗證工具
 docs/                             架構、驗證、疑難排解
@@ -278,7 +285,7 @@ API 的 `opening_width` 綁定可將已確認門窗寬度套用至同一開口�
 
 檢查包括家具碰撞、室內範圍、牆體、門洞保留帶、通道完整寬度與家具操作區。Agent 修正會收到實測重疊範圍；既有窄門及不連續地板另列為平面限制，不會自動改圖。這些檢查不等於住宅功能、門扇開啟、施工、採購或法規全數通過。Agent 必須列出未解需求，不可用通過幾何檢查掩蓋未知。家具目前包含床、上下舖、沙發、餐桌、書桌、椅子、櫃子、爐具、洗衣機與電視的通用概念模型，尚未接商品庫或自動下載材質。
 
-測試用 [6 × 6 m 工作室範例](examples/layout-study/README.md) 可直接匯入，沒有客戶資料。若已建立 3D 後回到平面重做配置，會建立新的模型基線；既有模型修訂保留，但材質／燈光等後續修改不會自動合併到新模型。
+測試用 [6 × 6 m 工作室範例](tests/fixtures/legacy-examples/layout-study/README.md) 可直接匯入，沒有客戶資料。若已建立 3D 後回到平面重做配置，會建立新的模型基線；既有模型修訂保留，但材質／燈光等後續修改不會自動合併到新模型。
 
 接續修正會保留上一版家具ID、尺寸、需求承接與生活路線，不能透過刪件／縮小換取通過。桌椅採「座位占用」與「淨空操作」分別核對。維護端可另存Agent輔助修正預覽；它與模型執行成功不同，預覽不能直接採用。
 

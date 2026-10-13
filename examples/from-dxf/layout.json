@@ -1,0 +1,896 @@
+{
+  "name": "Project04 teaching apartment",
+  "kind": "educational-derivative",
+  "units": "metres",
+  "provenance": {
+    "source": "Project04 electronic transcription v5, 2026-10-01",
+    "sha256": "9199f32f083f6709306505c0ea853bf4a21a3555beae72d8ffc30077f59b6181",
+    "note": "Teaching derivative, not the current approved design. Heights, unlabelled openings and furniture are illustrative; no construction approval implied."
+  },
+  "floor": [
+    [
+      -0.075,
+      -0.075
+    ],
+    [
+      6.718999999999999,
+      -0.075
+    ],
+    [
+      6.718999999999999,
+      -0.649
+    ],
+    [
+      8.03,
+      -0.649
+    ],
+    [
+      8.03,
+      5.925
+    ],
+    [
+      0.2,
+      5.925
+    ],
+    [
+      0.2,
+      5.53
+    ],
+    [
+      0.956,
+      5.53
+    ],
+    [
+      0.956,
+      4.614
+    ],
+    [
+      -0.075,
+      4.614
+    ]
+  ],
+  "walls": [
+    {
+      "id": "south-kitchen",
+      "a": [
+        -0.075,
+        -0.075
+      ],
+      "b": [
+        3.174,
+        -0.075
+      ],
+      "thickness": 0.15
+    },
+    {
+      "id": "south-public",
+      "a": [
+        3.174,
+        -0.075
+      ],
+      "b": [
+        6.719,
+        -0.075
+      ],
+      "thickness": 0.15
+    },
+    {
+      "id": "entry-left",
+      "a": [
+        6.719,
+        -0.075
+      ],
+      "b": [
+        6.719,
+        -0.649
+      ],
+      "thickness": 0.15
+    },
+    {
+      "id": "entry-bottom",
+      "a": [
+        6.719,
+        -0.649
+      ],
+      "b": [
+        8.03,
+        -0.649
+      ],
+      "thickness": 0.15
+    },
+    {
+      "id": "east-entry",
+      "a": [
+        8.03,
+        -0.649
+      ],
+      "b": [
+        8.03,
+        1.351
+      ],
+      "thickness": 0.15
+    },
+    {
+      "id": "east-bath",
+      "a": [
+        8.03,
+        1.351
+      ],
+      "b": [
+        8.03,
+        3.916
+      ],
+      "thickness": 0.15
+    },
+    {
+      "id": "east-master",
+      "a": [
+        8.03,
+        3.916
+      ],
+      "b": [
+        8.03,
+        5.925
+      ],
+      "thickness": 0.15
+    },
+    {
+      "id": "north-right",
+      "a": [
+        7.141,
+        5.925
+      ],
+      "b": [
+        8.03,
+        5.925
+      ],
+      "thickness": 0.15
+    },
+    {
+      "id": "north-column",
+      "a": [
+        5.901,
+        5.925
+      ],
+      "b": [
+        7.141,
+        5.925
+      ],
+      "thickness": 0.914
+    },
+    {
+      "id": "north-master",
+      "a": [
+        3.693,
+        5.925
+      ],
+      "b": [
+        5.901,
+        5.925
+      ],
+      "thickness": 0.15
+    },
+    {
+      "id": "north-balcony",
+      "a": [
+        1.391,
+        5.925
+      ],
+      "b": [
+        3.693,
+        5.925
+      ],
+      "thickness": 0.15
+    },
+    {
+      "id": "north-left-column",
+      "a": [
+        0.2,
+        5.925
+      ],
+      "b": [
+        1.391,
+        5.925
+      ],
+      "thickness": 0.914
+    },
+    {
+      "id": "recess-left",
+      "a": [
+        0.2,
+        5.925
+      ],
+      "b": [
+        0.2,
+        5.53
+      ],
+      "thickness": 0.15
+    },
+    {
+      "id": "recess-bottom",
+      "a": [
+        0.2,
+        5.53
+      ],
+      "b": [
+        0.956,
+        5.53
+      ],
+      "thickness": 0.15
+    },
+    {
+      "id": "balcony-return",
+      "a": [
+        0.956,
+        5.53
+      ],
+      "b": [
+        0.956,
+        4.614
+      ],
+      "thickness": 0.15
+    },
+    {
+      "id": "west-balcony-top",
+      "a": [
+        -0.075,
+        4.614
+      ],
+      "b": [
+        0.956,
+        4.614
+      ],
+      "thickness": 0.05
+    },
+    {
+      "id": "west-exterior",
+      "a": [
+        -0.075,
+        -0.075
+      ],
+      "b": [
+        -0.075,
+        4.614
+      ],
+      "thickness": 0.15
+    },
+    {
+      "id": "child-west",
+      "a": [
+        0.956,
+        1.634
+      ],
+      "b": [
+        0.956,
+        4.614
+      ],
+      "thickness": 0.15
+    },
+    {
+      "id": "child-north",
+      "a": [
+        0.956,
+        4.614
+      ],
+      "b": [
+        3.693,
+        4.614
+      ],
+      "thickness": 0.15
+    },
+    {
+      "id": "shared-lower",
+      "a": [
+        3.693,
+        2.907
+      ],
+      "b": [
+        3.693,
+        4.614
+      ],
+      "thickness": 0.132
+    },
+    {
+      "id": "shared-upper",
+      "a": [
+        3.693,
+        4.614
+      ],
+      "b": [
+        3.693,
+        5.925
+      ],
+      "thickness": 0.132
+    },
+    {
+      "id": "child-south",
+      "a": [
+        0.956,
+        1.634
+      ],
+      "b": [
+        3.108,
+        1.634
+      ],
+      "thickness": 0.1
+    },
+    {
+      "id": "child-kitchen-jamb",
+      "a": [
+        3.108,
+        1.634
+      ],
+      "b": [
+        3.174,
+        1.634
+      ],
+      "thickness": 0.1
+    },
+    {
+      "id": "child-return",
+      "a": [
+        3.108,
+        2.907
+      ],
+      "b": [
+        3.693,
+        2.907
+      ],
+      "thickness": 0.132
+    },
+    {
+      "id": "child-door-wall",
+      "a": [
+        3.108,
+        1.634
+      ],
+      "b": [
+        3.108,
+        2.907
+      ],
+      "thickness": 0.132
+    },
+    {
+      "id": "kitchen-sliding",
+      "a": [
+        3.174,
+        -0.075
+      ],
+      "b": [
+        3.174,
+        1.634
+      ],
+      "thickness": 0.06
+    },
+    {
+      "id": "master-south",
+      "a": [
+        3.693,
+        2.907
+      ],
+      "b": [
+        6.67,
+        2.907
+      ],
+      "thickness": 0.132
+    },
+    {
+      "id": "bath-west-lower",
+      "a": [
+        6.67,
+        1.351
+      ],
+      "b": [
+        6.67,
+        2.907
+      ],
+      "thickness": 0.15
+    },
+    {
+      "id": "bath-west-upper",
+      "a": [
+        6.67,
+        2.907
+      ],
+      "b": [
+        6.67,
+        3.916
+      ],
+      "thickness": 0.15
+    },
+    {
+      "id": "bath-south",
+      "a": [
+        6.67,
+        1.351
+      ],
+      "b": [
+        8.03,
+        1.351
+      ],
+      "thickness": 0.182
+    },
+    {
+      "id": "bath-north",
+      "a": [
+        6.67,
+        3.916
+      ],
+      "b": [
+        8.03,
+        3.916
+      ],
+      "thickness": 0.174
+    }
+  ],
+  "furniture": [
+    {
+      "id": "bed-master",
+      "category": "bed",
+      "center": [
+        5.066,
+        4.81
+      ],
+      "size": [
+        1.65,
+        2.08
+      ],
+      "height": 1.15,
+      "angle": 0
+    },
+    {
+      "id": "nightstand-master",
+      "category": "cabinet",
+      "center": [
+        4.0,
+        5.6
+      ],
+      "size": [
+        0.48200000000000004,
+        0.5
+      ],
+      "height": 0.55,
+      "angle": 0
+    },
+    {
+      "id": "wardrobe-master",
+      "category": "cabinet",
+      "center": [
+        7.675,
+        4.9265
+      ],
+      "size": [
+        1.847,
+        0.56
+      ],
+      "height": 2.35,
+      "angle": -90
+    },
+    {
+      "id": "bed-bunk",
+      "category": "bunk_bed",
+      "center": [
+        2.096,
+        4.039
+      ],
+      "size": [
+        1.0,
+        2.13
+      ],
+      "height": 1.8,
+      "angle": 90
+    },
+    {
+      "id": "dresser-child",
+      "category": "cabinet",
+      "center": [
+        3.427,
+        4.039
+      ],
+      "size": [
+        1.0,
+        0.4
+      ],
+      "height": 1.5,
+      "angle": -90
+    },
+    {
+      "id": "wardrobe-child",
+      "category": "cabinet",
+      "center": [
+        3.327,
+        3.256
+      ],
+      "size": [
+        0.5660000000000001,
+        0.6
+      ],
+      "height": 2.2,
+      "angle": -90
+    },
+    {
+      "id": "desk-child",
+      "category": "table",
+      "center": [
+        1.356,
+        2.7865
+      ],
+      "size": [
+        1.505,
+        0.65
+      ],
+      "height": 0.75,
+      "angle": 90
+    },
+    {
+      "id": "chair-child-a",
+      "category": "chair",
+      "center": [
+        1.931,
+        2.25
+      ],
+      "size": [
+        0.45,
+        0.45
+      ],
+      "height": 0.86,
+      "angle": -90
+    },
+    {
+      "id": "chair-child-b",
+      "category": "chair",
+      "center": [
+        1.931,
+        3.03
+      ],
+      "size": [
+        0.45,
+        0.45
+      ],
+      "height": 0.86,
+      "angle": -90
+    },
+    {
+      "id": "bookcase-child",
+      "category": "cabinet",
+      "center": [
+        1.331,
+        1.859
+      ],
+      "size": [
+        0.6,
+        0.35
+      ],
+      "height": 0.95,
+      "angle": 0
+    },
+    {
+      "id": "cabinet-balcony",
+      "category": "cabinet",
+      "center": [
+        1.845,
+        5.13
+      ],
+      "size": [
+        1.55,
+        0.75
+      ],
+      "height": 0.9,
+      "angle": 0
+    },
+    {
+      "id": "shoe-entry",
+      "category": "cabinet",
+      "center": [
+        6.975,
+        1.085
+      ],
+      "size": [
+        0.76,
+        0.35
+      ],
+      "height": 2.1,
+      "angle": 0
+    },
+    {
+      "id": "dirty-entry",
+      "category": "cabinet",
+      "center": [
+        7.655,
+        1.035
+      ],
+      "size": [
+        0.6,
+        0.45
+      ],
+      "height": 2.1,
+      "angle": 0
+    },
+    {
+      "id": "electric-public",
+      "category": "cabinet",
+      "center": [
+        3.4465,
+        0.25
+      ],
+      "size": [
+        0.585,
+        0.5
+      ],
+      "height": 2.1,
+      "angle": 180
+    },
+    {
+      "id": "hob-kitchen",
+      "category": "hob_counter",
+      "center": [
+        0.385,
+        0.317
+      ],
+      "size": [
+        0.77,
+        0.634
+      ],
+      "height": 0.9,
+      "angle": 180
+    },
+    {
+      "id": "dishwasher-kitchen",
+      "category": "cabinet",
+      "center": [
+        1.235,
+        0.317
+      ],
+      "size": [
+        0.93,
+        0.634
+      ],
+      "height": 0.9,
+      "angle": 180
+    },
+    {
+      "id": "sink-kitchen",
+      "category": "sink",
+      "center": [
+        2.0,
+        0.317
+      ],
+      "size": [
+        0.6,
+        0.634
+      ],
+      "height": 1.1,
+      "angle": 180
+    },
+    {
+      "id": "fridge-kitchen",
+      "category": "refrigerator",
+      "center": [
+        2.692,
+        0.36
+      ],
+      "size": [
+        0.6,
+        0.7
+      ],
+      "height": 1.82,
+      "angle": 180
+    },
+    {
+      "id": "sofa-public",
+      "category": "sofa",
+      "center": [
+        4.87,
+        0.395
+      ],
+      "size": [
+        1.735,
+        0.75
+      ],
+      "height": 0.86,
+      "angle": 180
+    },
+    {
+      "id": "table-public",
+      "category": "table",
+      "center": [
+        4.87,
+        1.25
+      ],
+      "size": [
+        0.705,
+        0.5
+      ],
+      "height": 0.5,
+      "angle": 0
+    },
+    {
+      "id": "tv-public",
+      "category": "tv",
+      "center": [
+        4.5,
+        2.7
+      ],
+      "size": [
+        1.5,
+        0.25
+      ],
+      "height": 1.55,
+      "angle": 180
+    },
+    {
+      "id": "wc-bath",
+      "category": "toilet",
+      "center": [
+        7.548,
+        2.645
+      ],
+      "size": [
+        0.45,
+        0.75
+      ],
+      "height": 0.8,
+      "angle": -90
+    },
+    {
+      "id": "vanity-bath",
+      "category": "sink",
+      "center": [
+        7.095,
+        1.77
+      ],
+      "size": [
+        0.6,
+        0.55
+      ],
+      "height": 1.05,
+      "angle": 180
+    },
+    {
+      "id": "shower-bath",
+      "category": "shower",
+      "center": [
+        7.35,
+        3.42
+      ],
+      "size": [
+        1.1,
+        0.8
+      ],
+      "height": 2.2,
+      "angle": 0
+    }
+  ],
+  "openings": [
+    {
+      "id": "entry",
+      "host": "entry-bottom",
+      "a": [
+        6.794,
+        -0.649
+      ],
+      "b": [
+        7.955,
+        -0.649
+      ],
+      "kind": "door"
+    },
+    {
+      "id": "child-door",
+      "host": "child-door-wall",
+      "a": [
+        3.108,
+        1.6840000000000002
+      ],
+      "b": [
+        3.108,
+        2.5839999999999996
+      ],
+      "kind": "door"
+    },
+    {
+      "id": "master-door",
+      "host": "master-south",
+      "a": [
+        5.7010000000000005,
+        2.907
+      ],
+      "b": [
+        6.595,
+        2.907
+      ],
+      "kind": "door"
+    },
+    {
+      "id": "bath-fold",
+      "host": "bath-west-lower",
+      "a": [
+        6.67,
+        2.0909999999999997
+      ],
+      "b": [
+        6.67,
+        2.841
+      ],
+      "kind": "door"
+    },
+    {
+      "id": "kitchen-door",
+      "host": "kitchen-sliding",
+      "a": [
+        3.174,
+        0.0
+      ],
+      "b": [
+        3.174,
+        1.584
+      ],
+      "kind": "door"
+    },
+    {
+      "id": "child-window",
+      "host": "child-west",
+      "a": [
+        0.956,
+        2.22
+      ],
+      "b": [
+        0.956,
+        4.27
+      ],
+      "kind": "window"
+    },
+    {
+      "id": "master-window",
+      "host": "shared-upper",
+      "a": [
+        3.693,
+        4.71
+      ],
+      "b": [
+        3.693,
+        5.82
+      ],
+      "kind": "window"
+    },
+    {
+      "id": "entry-window",
+      "host": "east-entry",
+      "a": [
+        8.03,
+        -0.2
+      ],
+      "b": [
+        8.03,
+        0.4
+      ],
+      "kind": "window"
+    },
+    {
+      "id": "kitchen-window",
+      "host": "west-exterior",
+      "a": [
+        -0.075,
+        0.75
+      ],
+      "b": [
+        -0.075,
+        1.45
+      ],
+      "kind": "window"
+    },
+    {
+      "id": "balcony-glazing",
+      "host": "west-exterior",
+      "a": [
+        -0.075,
+        1.7
+      ],
+      "b": [
+        -0.075,
+        4.45
+      ],
+      "kind": "window"
+    }
+  ]
+}

@@ -1,5 +1,42 @@
 # 獨立版驗證紀錄
 
+## 2026-10-13 本階段發布檢查
+
+本次整理包含三種匯入範例、牆地群組、用途與尺寸来源防錯、材質 UV／預覽修正、配置三分頁、Agent 概念家具，以及指定候選的有界錯誤修正。下方較早紀錄中的「本機／未推送」描述當時狀態；本節為本次發布範圍與驗證依據。
+
+| 檢查 | 結果 |
+| --- | --- |
+| 完整 Python 單元／契約回歸 | 246 通過；不呼叫雲端 Agent |
+| 前端回歸 | 73 通過 |
+| TypeScript、正式 UI 建置 | 通過；既有 bundle 大小提醒仍在 |
+| 真實 Blender 4.5.14 整合 | 17 通過，另 2 個 subtests 通過；含建模、交接、替換、材質、出圖、尺寸改造與原件保全 |
+| Python 依賴一致性 | 通過 |
+| 全新建置目錄的 wheel、獨立目錄安裝 | 通過；從安裝包啟動，頁面、JS/CSS、案件 API 及關閉流程通過 |
+| 發布資料 | 範例素材／產物 SHA-256、文件連結、Git 差異檢查通過；不納入私人 workspace、Agent 輸出、下載模型或憑證 |
+
+完整回歸初次發現兩個舊測試假設失效，修正後重測：直接連結測試不再以清單第一組充當家具，改為明確選取沙發；模型清單測試分開驗證 DXF 支援家具與編輯器完整家具／裝飾／燈具清單，不放寬 DXF 格式或用途防錯。兩張公開範例 PNG 移除本機來源路徑中繼資料，像素不變，manifest 雜湊同步更新。
+
+### 本阶段真實操作與限制
+
+- 前一輪使用相同 UI 工作流完成 6 件未配置家具的 Agent 概念建模，均經第二版碰撞修正後採用；必要家具與已確認規格保留。這些是概念模型，不代表精細商品或施工驗收。
+- 指定衣櫃的「選擇並替換」實測通過：同一候選自動選擇水平適配方向後，尺寸約 53 × 160 × 220 cm，通過碰撞並保存新修訂。另 30 個群組、原件雜湊及需求保持不變。此件第一版即成功，不能算成 Agent 錯誤修正分支的端到端實測。
+- Agent 分支另以合成碰撞案例測試真實 Codex 回覆，配合共用幾何檢查通過；真實 Blender 的縮放、固定方向、确认尺寸及原件保全由獨立整合測試覆蓋。本次發布檢查沒有再執行雲端配置或修改使用者場景。
+- 目前示範案件仍有一項先前牆面素材配對因未查核／重複素材回覆而待處理；不得把套件測試通過當作整案全部完成。任意模型的材質、使用側與實際生活動線仍需預覽確認。
+- 原始模型與歷史模型未清理。既有 ezdxf 棄用提醒與前端 bundle 大小提醒尚未消除，不阻擋本次測試／建置。
+
+重跑：`python -m pytest -q`、`npm test --prefix frontend`、`npm run build --prefix frontend`；設定 `INTERIOR_BLENDER` 後另執行 `python -m pytest tests/integration -q`。套件建置使用 `python -m build --wheel`，建議於全新 checkout 執行，避免舊 build 暫存混入歷史前端檔案。GitHub CI 執行一般回歸、前端與 wheel；Blender 和真實 Agent 檢查在本機執行，兩者不混稱。
+
+## 2026-10-12：三種 Project04 教學衍生範例
+
+現行入口見 [範例手冊](../examples/README.md)。舊合成案例移到 `tests/fixtures/legacy-examples/`，同步測試、smoke 工具與文件引用；移除被替代的舊日光公寓模型及圖片，保留 CC0 原素材。
+
+- **DXF 真實 UI 匯入**：69 個元件；透過右側 UI 填入來源表的牆厚／家具高度、確認建模，進入 02 編輯。69 個網格的 GLB／BLEND 對照與空間檢查通過。
+- **GLB 真實 UI 匯入**：25.46 MB，67 個單物件／157 個組成；進入 02 編輯並切換 2D／3D。157 個網格交接檢查通過，貼圖無遺失。原生範例腳本另完成 1200×900、48 samples Cycles 預覽；GLB 不含 HDRI，兩者不能視為相同照明品質。
+- **PNG 真實 Agent 與 UI 匯入**：GPT-6.1-Sol 整圖／放大複核辨認 24 個家具區域、5 個門洞與 5 個窗洞，留下 4 題。依生成來源在 UI 答覆並請 Agent 修正後，仍缺兩個加厚柱體；使用既有「＋牆體／精確頂點」UI 補繪，沒有修改後端案件 JSON。確認後生成 70 個網格，交接檢查通過並進入 02 編輯。此項不是全自動辨識通過，尺寸與平面形狀仍是概念還原，未驗收為精確 CAD 或施工圖。核對資料與人工操作見圖片範例手冊。
+- **一般檢查**：8 項相關 Python 測試、前端正式建置通過；原生配對登記命令可用。素材與產物雜湊、文件連結、Project04 原生模型未變動均核對通過。單檔最大 31.10 MB。
+
+本機預覽案件：`EXAMPLE_IMAGE`、`EXAMPLE_DXF`、`EXAMPLE_GLB`，位於既有測試服務 8876 的 workspace。截圖與驗證資料在忽略追蹤的 `artifacts/examples-project04/`。三条匯入完成不等於三個案件均完成最終渲染或人工設計驗收；本輪未上傳 GitHub。
+
 日期：2026-10-10。範圍：Roomweaver Studio 本機首次抽離版本。環境：Windows、Python 3.11.9、Node.js 24.19.0、Blender 4.5.14 LTS。
 
 | 驗證 | 結果 |
@@ -17,7 +54,7 @@
 
 ![實際匯入並保存照明的介面](images/studio-lighting.png)
 
-合成模型出圖見 [效果圖](../examples/demo-apartment/render-preview.png)。人工目視確認該圖有照明與家具，並未把簡單幾何評為照片級成果。
+合成模型出圖見 [效果圖](../tests/fixtures/legacy-examples/demo-apartment/render-preview.png)。人工目視確認該圖有照明與家具，並未把簡單幾何評為照片級成果。
 
 本機詳細證據位於被 Git 排除的 `artifacts/`，包括 smoke 報告、Blender 工作結果、wheel 安裝與檢查紀錄。可依根 README 的命令重新生成；這些私人機器日誌不隨公開 repo 發送。
 
@@ -70,8 +107,8 @@
 
 以下是開發期間的獨立驗證，本次發布前沒有重新呼叫雲端模型。
 
-- 合成 6 × 6 m 工作室：Codex 首輪候選引用不存在的家具，被拒絕後下一輪修正成功；提出工作桌及兩條動線。瀏覽器採用並建立概念 3D，桌子維持父子物件分組。範例見 [layout-study](../examples/layout-study/README.md)。
-- 兩張獨立合成手繪圖：真實 Codex 訂閱／GPT-6-Astra 辨識後各有四題，依各自答案生成新版後無剩餘辨識疑點。第二張圖曾因越界被拒絕，改善通用提示後明確重送通過，未放寬驗證條件。範例見 [hand-drawn-study](../examples/hand-drawn-study/README.md)。
+- 合成 6 × 6 m 工作室：Codex 首輪候選引用不存在的家具，被拒絕後下一輪修正成功；提出工作桌及兩條動線。瀏覽器採用並建立概念 3D，桌子維持父子物件分組。範例見 [layout-study](../tests/fixtures/legacy-examples/layout-study/README.md)。
+- 兩張獨立合成手繪圖：真實 Codex 訂閱／GPT-6-Astra 辨識後各有四題，依各自答案生成新版後無剩餘辨識疑點。第二張圖曾因越界被拒絕，改善通用提示後明確重送通過，未放寬驗證條件。範例見 [hand-drawn-study](../tests/fixtures/legacy-examples/hand-drawn-study/README.md)。
 - 第一張圖完成家具區域提案、圖上答覆、重新提案與概念建模；第二張圖於 UI 新增椅子、復原、保存及修改座面材質。重啟服務／頁面後修改仍保留，原始模型雜湊不變。
 - 圖內滾輪不捲動頁面；答覆與 A→B 可保存重開；匯入面板分段、已確認資訊收合及建模阻擋原因以實際瀏覽器操作核對。
 
@@ -137,3 +174,31 @@ Synthetic `MANUAL_ITEMS` UI validation: 2D rectangle → chair prompt → six li
 ## Compact decor and lighting action rows (local)
 
 59 frontend tests and the production build passed. Real UI actions in synthetic MANUAL_ITEMS: one-click decor automatically expanded and installed 1/1 asset; one-click lighting installed 2/2 ceiling fixtures and created three actual lights including sunlight. Manual light add and Undo restored the prior scene. Collapsing the panel retained processing, and the completed lighting batch synchronized its final revision. Evidence is local at `artifacts/compact-editor-ui/`. No final render, customer-scene edit, cleanup or GitHub push in this check.
+
+## 2026-10-12 統一牆地分組與材質配置
+
+- 三個 Project04 教學入口：原始圖片建模、DXF 建模與 GLB 案件均經共用整理 API 實測；DXF 整理按鈕以 UI 驗證。原模型 hash、子元件材質及家具保持相同，只建立新的群組修訂。
+- 搜尋目標從圖片 70→31、DXF 69→31、GLB 96→37；牆地各一筆。是目標數，不是雲端延遲量測。
+- 合成測試涵蓋分組、不同家具實例、房間限定範圍、子元件細調、候選來源、重複提交及舊案修訂保全。前端 73 項測試通過，正式 build 通過（仍有既有 bundle 大小提醒）。
+- 兩項真實 Blender 整合測試通過：DXF 直線牆建模與開孔、整組材質替換、單段材質覆寫及渲染。沒有呼叫真實 Codex／BlenderKit 網路服務；資產使用 repo 的 CC0 檔案。
+- 本機證據位於 `artifacts/structural-grouping/`，不納入公開 repo。通用重跑入口：`tests/test_structural_groups.py`、`tests/test_asset_*`、`tests/test_staging.py` 及 `tests/integration/test_asset_replacement.py`、`tests/integration/test_plan_pipeline.py`。
+## 2026-10-12 Codex 模型選取修正
+
+本機 CLI 0.154.0 的設定模型不在 `model/list` 中，導致未指定模型的素材配置繼承不支援名稱。現以清單預設模型明確啟動任務；指定模型必須通過清單驗證。一鍵配置先測試一次文字連線；權限拒絕中止整批，保留候選與模型，不當成零筆搜尋結果或繼續下載。31 項相關 Python 測試、73 項前端測試與 build 通過。透過本機 API 使用 `model=null` 實測解析為 `gpt-6-astra`，回傳 `STUDIO_READY`、狀態 passed；未重跑整屋配置或渲染。細節位於本機忽略的 `artifacts/codex-model-fix/README.md`。
+
+## 2026-10-13 Blender 路徑與配置續跑
+
+工作區可保存 Blender 路徑，服務重啟後讀取；下載前先檢查執行檔。缺少 Blender 時暫停整批，不耗盡所有候選，修正後沿用候選建立新工作、保留失敗紀錄。相關套件初測 18 項通過；新增舊版中途停止案例後，續跑與環境設定 12 項通過。前端 build 通過。真實 Blender 4.5.14 整合測試通過（23.70 秒），涵蓋家具替換、群組材質、子物件覆寫及兩張出圖；測試未重跑使用者整屋配置。證據在本機 `artifacts/codex-model-fix/README.md`。
+
+## 2026-10-13 第二批自動修正（本機）
+
+- 通用 UI 新增依失敗原因重新搜尋、允許區域內局部避碰，以及目前材質的本機預覽修正。每個目標最多兩輪重新搜尋；未知用途、環境錯誤與未授權移動不強行修正。
+- 目前圖片範例透過真實 UI、Codex、BlenderKit 與 Blender 執行：17 組完成／14 項待處理變為 19 組完成／12 項待處理。新採用免費馬桶與洗手櫃；其餘原因逐項保存。沒有修改已確認尺寸、刪除必要家具或清理舊模型。
+- 地板透過同一 UI 修正並採用四通道預覽，15／15 組成通過匯出 UV 檢查，實際 2D 預覽保留木紋。原生材質節點保留；本輪未重新渲染該住宅的正式高解析成果。
+- 54 項相關後端、73 項前端、3 項真實 Blender 整合測試與正式建置通過。合成 Blender 場景驗證局部移動成功；真實案件未設定允許區域，只驗證碰撞攔截，不能當作全案動線驗收。
+- UI 框選允許移動區域會回填世界座標，復原後回到原保存修訂。預設移動距離為零，需明確設定並保存才允許自動挪動。
+- 本機證據：`artifacts/asset-repair-20261013/README.md`。沒有 GitHub 推送；外框碰撞、複合材質與任意素材語意仍有文件列出的限制。
+
+## 2026-10-13 物件理解與規格預覽
+
+43 項相關後端測試、73 項既有前端測試及正式建置通過。合成案件驗證尺寸與用途保全、過期修訂拒絕、方向推定、搜尋接收規格及原材質風格隔離。真實 UI 與 Codex 完成目前圖片範例 31 組規格複核，24 件家具中 22 件用途明確、2 件來源不足保留未知；現用修訂與模型未變。本輪未重新渲染或下載素材。證據存本機忽略目錄 artifacts/object-specifications-20261013；不依賴案件專用腳本、不推送 GitHub。

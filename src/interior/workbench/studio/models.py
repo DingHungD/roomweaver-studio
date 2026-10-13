@@ -39,6 +39,65 @@ class ObjectAssignment(Strict):
     room_id: str | None = None
     material: Material = Field(default_factory=Material)
 
+class AssetRequirements(Strict):
+    purpose: str = Field(default='', max_length=60)
+    dimension_source: Literal['unknown','confirmed','envelope','estimated'] = 'unknown'
+    dimensions: tuple[float,float,float] | None = None
+    evidence: str = Field(default='',max_length=1000)
+
+    @model_validator(mode='after')
+    def validate_source(self):
+        from .asset_quality import PURPOSES
+        if self.purpose and self.purpose not in PURPOSES:raise ValueError('未知用途分類')
+        if self.dimensions and any(v<=0 or v>10000 for v in self.dimensions):raise ValueError('尺寸必須為正數公尺')
+        if self.dimension_source in ('confirmed','envelope') and (not self.dimensions or not self.evidence.strip()):
+            raise ValueError('已確認尺寸／範圍須填入三軸尺寸及來源')
+        return self
+
+class PlacementConstraints(Strict):
+    area: tuple[float,float,float,float] | None = None
+    max_distance: float = Field(default=0,ge=0,le=.5)
+    keep_out: list[tuple[float,float,float,float]] = Field(default_factory=list,max_length=50)
+
+    @model_validator(mode='after')
+    def valid_rectangles(self):
+        for r in ([self.area] if self.area else [])+self.keep_out:
+            if r[0]>=r[2] or r[1]>=r[3] or any(abs(v)>10000 for v in r):raise ValueError('區域需為有效的世界座標矩形')
+        if self.max_distance and not self.area:raise ValueError('自動移動必須指定允許區域')
+        return self
+
+class ObjectSpecification(Strict):
+    purpose: str = Field(default='',max_length=60)
+    front: Literal['unknown','+X','-X','+Y','-Y','multiple'] = 'unknown'
+    front_source: Literal['suggested','user'] = 'suggested'
+    material_policy: Literal['global','original','specified'] = 'global'
+    material_description: str = Field(default='',max_length=2000)
+    material_part: str = Field(default='',max_length=200)
+    style: str = Field(default='',max_length=2000)
+    dimension_fit: Literal['uniform','adapt'] = 'adapt'
+
+    @model_validator(mode='after')
+    def valid_purpose(self):
+        from .asset_quality import PURPOSES
+        if self.purpose and self.purpose not in PURPOSES:raise ValueError('未知用途分類')
+        if self.material_policy=='specified' and not self.material_description.strip():raise ValueError('請填指定材質描述')
+        return self
+
+class GeneratedReference(Strict):
+    task_id: str = Field(pattern=r'^[a-f0-9]{32}$')
+    model_id: str = Field(pattern=r'^[a-f0-9]{32}$')
+    purpose: str
+    version: Literal[1,2] = 1
+    source: Literal['bounded_parametric_template','agent_parametric'] = 'bounded_parametric_template'
+    agent_task_id: str | None = Field(default=None,pattern=r'^[a-f0-9]{32}$')
+    quality: Literal['concept'] = 'concept'
+
+    @model_validator(mode='after')
+    def supported_generation(self):
+        from .parametric_assets import SUPPORTED
+        if self.purpose not in SUPPORTED:raise ValueError('不支援的概念家具用途')
+        return self
+
 class ObjectGroup(Strict):
     id: str = Field(min_length=1, max_length=100)
     name: str = Field(min_length=1, max_length=200)
@@ -51,7 +110,11 @@ class ObjectGroup(Strict):
     editor_kind: Literal['furniture','decor'] | None = None
     design_prompt: str = Field(default='',max_length=2000)
     model_url: str = Field(default='',max_length=2000)
+    asset_requirements: AssetRequirements | None = None
+    object_specification: ObjectSpecification | None = None
+    placement_constraints: PlacementConstraints | None = None
     asset_reference: AssetReference | None = None
+    generated_reference: GeneratedReference | None = None
 
 class Shot(Strict):
     id: str = Field(pattern=r'^[a-zA-Z0-9_-]{1,80}$')

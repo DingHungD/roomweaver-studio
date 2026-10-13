@@ -65,7 +65,7 @@ def test_download_rechecks_price_version_license_before_network(tmp_path):
 class FakeAgents:
     def __init__(self):self.tasks={};self.calls=0
     def start(self,kind,model,payload,identifier):
-        self.calls+=1;self.tasks[identifier]=dict(id=identifier,status='passed',candidates=[catalog.normalize(raw()),catalog.normalize(raw(PAID,False))])
+        self.calls+=1;self.tasks[identifier]=dict(id=identifier,status='passed',candidates=[dict(catalog.normalize(raw()),name='Synthetic sofa'),dict(catalog.normalize(raw(PAID,False)),name='Synthetic sofa')])
     def get(self,identifier):return copy.deepcopy(self.tasks[identifier])
 
 def environment(tmp_path):
@@ -82,20 +82,20 @@ def environment(tmp_path):
 def test_matching_scoped_to_group_deduplicated_reference_saved_and_stale_rejected(tmp_path):
     studio,jobs,first=environment(tmp_path)
     try:
-        agents=FakeAgents();service=AssetMatching(studio,agents);gid=first['scene']['groups'][0]['id']
+        agents=FakeAgents();service=AssetMatching(studio,agents);gid=next(g['id'] for g in first['scene']['groups'] if 'sofa' in g['children'])
         body=MatchRequest(base_revision=first['revision'],group_id=gid,operation_id='match-0001')
         task=service.start('ASSETS',body);assert service.start('ASSETS',body)['id']==task['id'] and agents.calls==1
         with pytest.raises(Conflict):service.start('ASSETS',body.model_copy(update={'description':'changed'}))
         selection=SelectAsset(base_revision=first['revision'],asset_id=FREE,operation_id='replace-001')
         saved=service.reference('ASSETS',task['id'],selection)
-        assert saved['scene']['groups'][0]['asset_reference']['url'].endswith(FREE+'/')
+        assert next(g for g in saved['scene']['groups'] if g['id']==gid)['asset_reference']['url'].endswith(FREE+'/')
         selection.base_revision=saved['revision']
         with pytest.raises(ValueError,match='授權'):service.replace('ASSETS',task['id'],selection)
         selection.accept_license=True
         job=service.replace('ASSETS',task['id'],selection)
         assert service.replace('ASSETS',task['id'],selection)['id']==job['id']
         assert job['operation']=='studio.replace'
-        moved=copy.deepcopy(saved['scene']);moved['groups'][0]['translation']=[1,0,0]
+        moved=copy.deepcopy(saved['scene']);next(g for g in moved['groups'] if g['id']==gid)['translation']=[1,0,0]
         changed=studio.save('ASSETS',moved,saved['revision']);selection.base_revision=changed['revision']
         with pytest.raises(Conflict,match='單物件'):service.replace('ASSETS',task['id'],selection)
         assert service.current('ASSETS',gid)['replacement']['job_id']==job['id']
@@ -104,8 +104,11 @@ def test_matching_scoped_to_group_deduplicated_reference_saved_and_stale_rejecte
 def test_material_target_and_reference_url_are_validated(tmp_path):
     studio,jobs,first=environment(tmp_path)
     try:
-        service=AssetMatching(studio,FakeAgents());gid=first['scene']['groups'][0]['id']
+        service=AssetMatching(studio,FakeAgents());gid=next(g['id'] for g in first['scene']['groups'] if 'sofa' in g['children'])
         with pytest.raises(ValueError,match='子物件'):service.start('ASSETS',MatchRequest(base_revision=first['revision'],group_id=gid,kind='material',operation_id='match-0001'))
+        wall=next(g for g in first['scene']['groups'] if 'wall' in g['children'])
+        result=service.start('ASSETS',MatchRequest(base_revision=first['revision'],group_id=wall['id'],kind='material',operation_id='whole-wall'))
+        assert result['target']['object_ids']==wall['children']
         with pytest.raises(ValueError):AssetReference(asset_id=FREE,version_id=VERSION,task_id='a'*32,name='test',url='javascript:alert(1)',kind='model',license='cc_zero',is_free=True)
     finally:jobs.close()
 
@@ -146,7 +149,7 @@ def test_download_limit_removes_partial_and_sends_no_api_key_to_cdn(tmp_path):
 def test_paid_candidate_requires_explicit_paid_consent(tmp_path):
     studio,jobs,first=environment(tmp_path)
     try:
-        service=AssetMatching(studio,FakeAgents());gid=first['scene']['groups'][0]['id']
+        service=AssetMatching(studio,FakeAgents());gid=next(g['id'] for g in first['scene']['groups'] if 'sofa' in g['children'])
         task=service.start('ASSETS',MatchRequest(base_revision=first['revision'],group_id=gid,operation_id='paid-match'))
         body=SelectAsset(base_revision=first['revision'],asset_id=PAID,operation_id='paid-replace',accept_license=True)
         with pytest.raises(ValueError,match='付費候補'):service.replace('ASSETS',task['id'],body)
