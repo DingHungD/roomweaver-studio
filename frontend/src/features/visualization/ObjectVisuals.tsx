@@ -46,8 +46,8 @@ class Pictures {
   dispose(){this.closed=true;this.renderer?.dispose();this.renderer?.forceContextLoss();this.cache.clear();void this.data?.then(({scene})=>{const materials=new Set<THREE.Material>(),textures=new Set<THREE.Texture>();scene.traverse(o=>{if(o instanceof THREE.Mesh){o.geometry.dispose();for(const m of Array.isArray(o.material)?o.material:[o.material])materials.add(m);}});for(const m of materials){for(const value of Object.values(m))if(value instanceof THREE.Texture)textures.add(value);m.dispose();}textures.forEach(t=>t.dispose());}).catch(()=>{});}
 }
 const Context=createContext<Pictures|null>(null);
-export function ObjectVisualsProvider({project,scene,children}:{project:string;scene:Scene;children:ReactNode}){
-  const pictures=useMemo(()=>new Pictures(project,scene),[project,scene]);useEffect(()=>()=>pictures.dispose(),[pictures]);
+export function ObjectVisualsProvider({project,scene,children,sceneCacheKey}:{project:string;scene:Scene;children:ReactNode;sceneCacheKey?:string}){
+  const pictures=useMemo(()=>new Pictures(project,scene),[project,sceneCacheKey??scene]);useEffect(()=>()=>pictures.dispose(),[pictures]);
   return <Context.Provider value={pictures}>{children}</Context.Provider>;
 }
 export function ObjectVisual({id,name,onInspect}:{id:string;name:string;onInspect?:()=>void}){

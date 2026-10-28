@@ -62,7 +62,7 @@ class AutoPlacement:
                     if not row:continue
                     result=self.assets.get(project,target['task_id'])
                     selected=next((c for c in result.get('candidates',[]) if c['asset_id']==row.get('asset_id')),None)
-                    recheck=target['kind']=='material' or row['status']=='needs_attention' or (selected and assess(target['context'],selected,target['kind'])['status']=='blocked')
+                    recheck=(target['kind']=='material' and state.get('quality_version',0)<1) or row['status']=='needs_attention' or (selected and assess(target['context'],selected,target['kind'])['status']=='blocked')
                     environment_retry=row['status']!='installed' and ((bool(row.get('attempts')) and missing_blender(row['attempts'][-1].get('error'))) or (row.get('job_id') and missing_blender(self.studio.jobs.get(row['job_id']).get('error'))))
                     if recheck and not environment_retry:
                         row.setdefault('previous_passes',[]).append({k:v for k,v in row.items() if k!='previous_passes'})
@@ -71,6 +71,11 @@ class AutoPlacement:
                 state['quality_version']=VERSION
             # Retry environment failures from their saved candidates, retaining audit history.
             for row in state['items'].values():
+                if row.get('review_task_id'):
+                    inspection=self.batches.agents.get(row['review_task_id'])
+                    if inspection['status'] in ('failed','interrupted','stopped'):
+                        row['review_generation']=row.get('review_generation',0)+1
+                        row.pop('review_task_id',None)
                 if row.get('job_id') and row['status']=='applying':
                     job=self.studio.jobs.get(row['job_id'])
                     if job['status']=='failed' and missing_blender(job.get('error')):
@@ -100,8 +105,17 @@ class AutoPlacement:
                 state.update(status='paused',error='服務曾中斷；按繼續會先核對既有工作，不重複下載')
                 write_json(path,state)
             current=self.studio.current(project)['scene']
+            from .asset_completion import adopted_completion, failure_details
+            payload=read_json(path.parent/'input.json')
+            targets={t['task_id']:t for t in payload['targets']}
+            lineage=[current['model_id'],*self.studio.model(project,current['model_id']).get('ancestor_model_ids',[])]
             for row in result['items']:
-                row['placement']=state['items'].get(row['task_id'],dict(status='waiting'))
+                row['placement']=dict(state['items'].get(row['task_id'],dict(status='waiting')))
+                if row['placement']['status'] not in ('installed','kept'):
+                    try:completion=adopted_completion(self.studio,self.assets.folder(project),project,current,targets[row['task_id']],lineage)
+                    except (FileNotFoundError,KeyError,ValueError):completion=None
+                    if completion:row['placement'].update(completion,error=None)
+                row['placement']['failure_details']=failure_details(row['placement'])
                 actual_ref=target_reference(current,row)
                 checks=row.pop('_candidate_checks',{})
                 row['quality']=checks.get(actual_ref['asset_id']) if actual_ref else None
@@ -125,7 +139,7 @@ class AutoPlacement:
                 state=read_json(path);state['stop']=True;write_json(path,state)
             if path.exists():
                 for row in state['items'].values():
-                    task=row.get('generation_task_id') or row.get('match_task_id')
+                    task=row.get('installation_task_id') or row.get('adjust_task_id') or row.get('review_task_id') or row.get('generation_task_id') or row.get('match_task_id')
                     if task and self.batches.agents.get(task)['status'] in ('queued','running','stopping'):self.batches.agents.stop(task)
             agent=self.batches.agents.get(identifier)
             if agent['status'] in ('queued','running','stopping'):self.batches.agents.stop(identifier)
@@ -200,10 +214,12 @@ class AutoPlacement:
             row.update(status='needs_attention',generation_failed=True,error='Agent 概念建模未完成：'+str(agent.get('error') or agent['status']))
             write_json(path,state);return True
         generated=dict(agent['recipe'],agent_task_id=task)
+        from .fixture_installation import advance as prepare_installation
+        if not prepare_installation(self,project,identifier,target,row,state,path,dict(asset_id='generated',name=target['name'],recipe=generated)):return True
         row.update(status='applying',generated=True,asset_id='generated',generated_recipe=generated)
         state['phase']='建立並檢查概念家具：'+target['name'];write_json(path,state)
         job=self.studio.jobs.submit_studio(project,'replace',dict(revision=state['revision'],task_id=match_task,
-            group_id=target['group_id'],generated=generated,rotation=0,auto_fit=True,
+            group_id=target['group_id'],fixture_installation=row.get('installation'),generated=generated,rotation=0,auto_fit=True,
             asset_requirements=requirements(target['context'])),'generated-v2-'+identifier+'-'+task)
         row['job_id']=job['id'];write_json(path,state);return True
 
@@ -252,6 +268,10 @@ class AutoPlacement:
                 job=self.studio.jobs.get(row['job_id'])
                 if job['status'] in ('queued','running'):return True
                 if job['status']=='completed':
+                    from .asset_quality import requirements
+                    if not row.get('restoring') and target['kind']=='model':
+                        decision=self.review(project,identifier,target,row,state,path,job,payload)
+                        if decision!='pass':return decision!='pause'
                     saved=self.assets.adopt(project,job['id'],state['revision'])
                     row.update(status='needs_attention' if row.get('restoring') else 'installed',error='用途錯配已回復原件；沒有合格免費候選，請重新搜尋' if row.get('restoring') else None);state['revision']=saved['revision']
                     report=self.studio.root(project)/job['output']/'replacement-report.json'
@@ -260,12 +280,20 @@ class AutoPlacement:
                 row['attempts'].append(dict(asset_id=row['asset_id'],job_id=job['id'],error=job.get('error',job['status'])))
                 check=self.studio.root(project)/job['output']/'generation-check.json'
                 if row['asset_id']=='generated' and check.exists():row['attempts'][-1]['check']=read_json(check)
+                detail=self.studio.root(project)/job['output']/'replacement-check.json'
+                if detail.exists():row['attempts'][-1]['check']=read_json(detail)
+                if target['kind']=='model' and failure_kind(job.get('error')) in ('size','collision'):
+                    from .model_repair import request_repair
+                    request_repair(row,job.get('error'))
                 row.pop('job_id',None)
                 if row['asset_id']=='generated':row.setdefault('generation_checks',[]).append(dict(job_id=job['id'],error=job.get('error')))
                 if missing_blender(job.get('error')):
                     row.update(status='waiting',error='Blender 尚未設定；候選保留，修正環境後可繼續')
                     state.update(status='paused',phase='等待修正 Blender 執行環境',error=row['error'])
                     write_json(path,state);return False
+            from .model_repair import advance
+            if advance(self,project,identifier,target,row,state,path,payload,match_task):
+                return state['status']!='paused'
             result=self.assets.get(project,match_task)
             specification=target.get('context',{}).get('group',{}).get('object_specification') or {}
             if specification.get('material_policy') in ('original','specified'):
@@ -296,14 +324,71 @@ class AutoPlacement:
             item=free[0]
             # Persist operation intent before submission: replay uses the same dedup key.
             row.update(status='applying',asset_id=item['asset_id'])
-            state.update(status='applying',phase='下載與替換：'+target['name'])
-            write_json(path,state)
             body=SelectAsset(base_revision=state['revision'],asset_id=item['asset_id'],accept_license=True,
                              operation_id='auto-q'+str(VERSION)+'-'+identifier+'-'+task+'-'+str(row.get('generation',0))+'-'+str(row.get('search_round',0))+'-'+str(len(row['attempts'])),auto_fit=True)
-            job=self.assets.replace(project,match_task,body)
+            from .fixture_installation import advance as prepare_installation
+            if not prepare_installation(self,project,identifier,target,row,state,path,item):return True
+            state.update(status='applying',phase='下載與替換：'+target['name'])
+            write_json(path,state)
+            job=self.assets.replace(project,match_task,body,installation=row.get('installation'))
             row['job_id']=job['id'];write_json(path,state);return True
         state.update(status='review',phase='第一版處理完成；請檢視每件家具，備選只保留連結')
         write_json(path,state);return False
+
+    def review(self,project,identifier,target,row,state,path,job,payload):
+        """Inspect a completed immutable job before adoption; replay reuses its review."""
+        from uuid import uuid5,NAMESPACE_URL
+        from .asset_quality import requirements
+        folder=self.studio.root(project)/job['output']
+        report=read_json(folder/'replacement-report.json') if (folder/'replacement-report.json').exists() else {}
+        evidence=report.get('visual_review') or {}
+        decor=evidence.get('images')==['decor-object.png','decor-context.png']
+        if decor and report.get('support',{}).get('status')!='passed':
+            row['error']='缺少可確認的實際承載表面；保留原件，請先確認裝飾物放置位置'
+            state.update(status='paused',error=row['error']);write_json(path,state);return 'pause'
+        if not decor and (evidence.get('images')!=['model-object.png','model-reverse.png','model-context.png'] or report.get('model_check',{}).get('status')!='passed'):
+            row['error']='缺少實際模型檢查預覽；未自動套用'
+            state.update(status='paused',error=row['error']);write_json(path,state);return 'pause'
+        task=uuid5(NAMESPACE_URL,'decor-review-v1:'+job['id']+':'+str(row.get('review_generation',0))).hex
+        row['review_task_id']=task;row['review_images']=evidence['images'];state.update(status='applying',phase='看圖核對用途與放置位置：'+target['name'])
+        write_json(path,state)
+        try:agent=self.batches.agents.get(task)
+        except FileNotFoundError:
+            self.batches.agents.start('asset_review',payload['settings'].get('model') or self.batches.agents.get(identifier).get('model'),
+                dict(job_id=job['id'],images=[str((folder/name).resolve()) for name in evidence['images']],
+                     requirements=requirements(target['context']),support=report.get('support'),dimensions=report.get('resulting_dimensions'),
+                     specification=target['context']['group'].get('object_specification'),placement=report.get('placement'),model_check=report.get('model_check'),preview_context=evidence,
+                     generated=report.get('generated',False),installation=report.get('installation')),identifier=task)
+            return 'pending'
+        if agent['status'] in ('queued','running','stopping'):return 'pending'
+        verdict=agent.get('verdict') or {};row['visual_review']=dict(task_id=task,job_id=job['id'],**verdict)
+        if agent['status']=='passed' and verdict.get('status')=='uncertain' and (report.get('installation') or {}).get('status')=='passed' and row.get('installation_view_retries',0)<1:
+            # Preserve the first image set. Rebuild a new immutable snapshot with
+            # connection-only evidence; do not pretend an occluded view passed.
+            row.setdefault('installation_view_history',[]).append(dict(job_id=job['id'],verdict=verdict))
+            row['installation_view_retries']=row.get('installation_view_retries',0)+1
+            row['generation']=row.get('generation',0)+1
+            row['review_generation']=row.get('review_generation',0)+1
+            row.pop('job_id',None);row.pop('review_task_id',None);row.update(status='waiting',error=None)
+            state.update(status='applying',phase='安裝圖受遮擋，保留舊證據並重新拍攝接合面一次');write_json(path,state);return 'pending'
+        if agent['status']!='passed' or agent.get('job_id')!=job['id'] or verdict.get('status')=='uncertain':
+            row['error']='模型看圖未確認，保留原件：'+str(agent.get('error') or verdict.get('reason') or agent['status'])
+            state.update(status='paused',error=row['error']);write_json(path,state);return 'pause'
+        if verdict.get('status')=='pass' and not verdict.get('issues'):
+            import hashlib
+            hashes={name:hashlib.sha256((folder/name).read_bytes()).hexdigest() for name in evidence['images']}
+            if hashes!=agent.get('image_hashes'):
+                state.update(status='paused',error='預覽證據已變更，未自動套用');write_json(path,state);return 'pause'
+            return 'pass'
+        if verdict.get('status')!='retry':
+            state.update(status='paused',error='看圖結果無效；保留原件');write_json(path,state);return 'pause'
+        row['attempts'].append(dict(asset_id=row['asset_id'],job_id=job['id'],error='實際模型看圖未通過：'+verdict.get('reason',''),check=verdict))
+        if verdict.get('issues')==['proportion']:
+            from .model_repair import request_repair
+            request_repair(row,verdict.get('reason'))
+        row.pop('job_id',None);row.pop('review_task_id',None);row.update(status='waiting',error=None)
+        state['phase']='依看圖結果改試候選／修正概念模型：'+target['name'];write_json(path,state)
+        return 'retry'
 
     def run(self,project,identifier):
         try:

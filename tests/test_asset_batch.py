@@ -11,6 +11,18 @@ from interior.workbench.studio.asset_storage import clean_replacements, source_h
 from interior.workbench.storage import write_json, read_json, Conflict
 from test_asset_matching import environment, FakeAgents, FREE
 
+
+def test_inventory_index_preserves_object_order_and_does_not_change_source():
+    from interior.workbench.studio.asset_batch import inventory
+    scene=dict(objects=[dict(id='a',name='Seat',room_id='living'),dict(id='b',name='Leg',room_id='study')],
+        groups=[dict(id='chair',name='Chair',children=['b','a','b','missing'],deleted=False),
+                dict(id='deleted',name='Deleted',children=['a'],deleted=True)],concept_furniture=[])
+    original=copy.deepcopy(scene)
+    items=inventory(scene)
+    assert len(items)==1 and items[0]['parts']==['a','b']
+    assert items[0]['category']=='chair' and items[0]['room_ids']==['living','study']
+    assert scene==original
+
 def request(first,**kwargs):
     return BatchRequest(base_revision=first['revision'],operation_id='batch-test-one',auto_apply=False,**kwargs)
 

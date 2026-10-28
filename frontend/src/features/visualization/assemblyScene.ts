@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type {Scene} from './api';
 export type AssemblyRuntime={root:THREE.Object3D;groups:Map<string,THREE.Group>;parts:Map<string,THREE.Object3D>;bases:Map<string,THREE.Vector3>;materials:THREE.Material[]};
 const appliedTransforms=new WeakMap<THREE.Object3D,string>();
+const appliedMaterials=new WeakMap<THREE.Object3D,string>();
 export function assemble(root:THREE.Object3D,design:Scene):AssemblyRuntime {
   root.updateMatrixWorld(true);
   const groups=new Map<string,THREE.Group>(),parts=new Map<string,THREE.Object3D>(),bases=new Map<string,THREE.Vector3>();
@@ -11,7 +12,13 @@ export function assemble(root:THREE.Object3D,design:Scene):AssemblyRuntime {
     const bounds=new THREE.Box3();spec.children.forEach(id=>{const part=parts.get(id);if(part)bounds.expandByObject(part);});
     const center=bounds.isEmpty()?new THREE.Vector3():bounds.getCenter(new THREE.Vector3());
     group.position.copy(root.worldToLocal(center.clone()));group.updateMatrixWorld(true);
-    spec.children.forEach(id=>{const part=parts.get(id);if(part)group.attach(part);});
+    spec.children.forEach(id=>{const part=parts.get(id);if(part){
+      // Object3D.attach decomposes to TRS, losing a source's affine shear.
+      // Keep the exact relative matrix for these static imported parts.
+      part.updateWorldMatrix(true,false);const world=part.matrixWorld.clone();group.attach(part);
+      part.matrix.copy(group.matrixWorld.clone().invert().multiply(world));part.matrixAutoUpdate=false;
+      part.updateMatrixWorld(true);
+    }});
     groups.set(spec.id,group);bases.set(spec.id,group.position.clone());
   }
   return {root,groups,parts,bases,materials:[]};
@@ -29,9 +36,11 @@ export function applyDesign(runtime:AssemblyRuntime,design:Scene){
     node.updateMatrixWorld(true);appliedTransforms.set(node,key);
   }
   for(const spec of design.objects){const part=runtime.parts.get(spec.id);if(!part)continue;
+    const requested=spec.material.color||spec.material.render_roughness!=null?`${spec.material.color}:${spec.material.render_roughness??spec.material.roughness}`:'';
+    if(appliedMaterials.get(part)===requested)continue;
     part.traverse(o=>{if(!(o instanceof THREE.Mesh))return;
       o.userData.originalMaterial??=o.material;
-      const key=spec.material.color?`${spec.material.color}:${spec.material.roughness}`:'';
+      const key=spec.material.color||spec.material.render_roughness!=null?`${spec.material.color}:${spec.material.render_roughness??spec.material.roughness}`:'';
       if(o.userData.materialKey===key)return;
       if(key){
         if(!o.userData.studioMaterial){
@@ -39,10 +48,12 @@ export function applyDesign(runtime:AssemblyRuntime,design:Scene){
           o.userData.studioMaterial=Array.isArray(o.userData.originalMaterial)?o.userData.originalMaterial.map(clone):clone(o.userData.originalMaterial);
         }
         o.material=o.userData.studioMaterial;
-        for(const m of Array.isArray(o.material)?o.material:[o.material]){const surface=m as THREE.MeshStandardMaterial;surface.color.set(spec.material.color!);surface.roughness=spec.material.roughness;}
+        const originals=Array.isArray(o.userData.originalMaterial)?o.userData.originalMaterial:[o.userData.originalMaterial];
+        (Array.isArray(o.material)?o.material:[o.material]).forEach((m,i)=>{const surface=m as THREE.MeshStandardMaterial;if(spec.material.color)surface.color.set(spec.material.color);else if(originals[i].color)surface.color.copy(originals[i].color);surface.roughness=spec.material.render_roughness??spec.material.roughness;});
       }else o.material=o.userData.originalMaterial;
       o.userData.materialKey=key;
     });
+    appliedMaterials.set(part,requested);
   }
   runtime.root.updateMatrixWorld();
 }

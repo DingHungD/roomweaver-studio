@@ -4,7 +4,7 @@ import json
 from pydantic import BaseModel, ConfigDict, Field
 from .asset_quality import requirements
 
-SUPPORTED = {'cabinet','bookcase','table','desk','wardrobe','shoe_cabinet','nightstand','dresser',
+SUPPORTED = {'vase','books','tableware','cabinet','bookcase','table','desk','wardrobe','shoe_cabinet','nightstand','dresser',
              'bed','bunk_bed','sofa','chair','television','washer','dishwasher','fridge','cooker','sink','vanity','toilet','shower'}
 GENERATION_VERSION = 2
 

@@ -1,0 +1,12 @@
+{
+  "source": "upstream-gallery-source",
+  "synced_at": "2026-10-28",
+  "baseline": "whole-house-v5-d408dc8a2dfa",
+  "files": {
+    "gallery.js": "df610079f2eb7dda019157d2d877c9c89cc02153f2a6af0415408aed00513ee3",
+    "gallery-resources.js": "5cf9cbd4401a9ef7ef15d3899e18cb84033e9418f554d2a81e81100d26de579e",
+    "immersive-tour.js": "cb97c74b196d2fdf55abd26f0016957981a49e1ae865922885cf2be65a87dd96",
+    "tour.css": "e2a4f11cd71d455baa55ff4a54aacdc22f6b78e00193fa59f787104f3a9964de",
+    "style.css": "056b41a27d8e7f484ef22874721838c57b9681ea6c4d3e48c34823aca4e84ee8"
+  }
+}

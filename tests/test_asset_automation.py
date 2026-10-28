@@ -38,7 +38,7 @@ def test_auto_fallback_and_replay_do_not_skip_targets_or_duplicate_jobs(tmp_path
         def adopt(project,jid,revision):
             scene=copy.deepcopy(studio.current(project)['scene']);scene['design_notes'].append('applied '+jid)
             return studio.save(project,scene,revision)
-        with patch.object(batch.assets,'adopt',side_effect=adopt):
+        with patch.object(batch.assets,'adopt',side_effect=adopt),patch.object(runner,'review',return_value='pass'):
             job=jobs.list('ASSETS')[0];job['status']='completed';jobs.write(job)
             runner.tick('ASSETS',identifier)
             runner.tick('ASSETS',identifier)

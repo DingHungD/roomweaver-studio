@@ -20,18 +20,22 @@ def create_backup(studio,coordinator):
                 source.backup(target)
             finally:
                 source.close();target.close()
+        registry=studio.store.state_dir/'project-library/registry.json'
+        if registry.exists():
+            (output/'application').mkdir()
+            shutil.copy2(registry,output/'application/project-library-registry.json')
         projects=[]
         for project in studio.store.projects():
             folder=studio.folder(project['id'])
             parts=[]
-            for name in ('interior-studio','plan-import'):
+            for name in ('interior-studio','plan-import','project-session'):
                 source=folder.parent/name
                 if source.exists():
                     shutil.copytree(source,output/'projects'/project['id']/name)
                     parts.append(name)
             if parts:projects.append(dict(id=project['id'],revision=studio.current(project['id'])['revision'],parts=parts))
         hashes={p.relative_to(output).as_posix():digest(p) for p in output.rglob('*') if p.is_file()}
-        write_json(output/'manifest.json',dict(projects=projects,sha256=hashes,large_files='Case runs and sources require separate backup',format=2))
+        write_json(output/'manifest.json',dict(projects=projects,sha256=hashes,large_files='Case runs and sources require separate backup',registry='Application registry snapshot is recovery evidence; restore never trusts it to choose arbitrary project destinations',format=2))
         # Only timestamp folders created here are eligible, never upgrade snapshots.
         snapshots=sorted(p for p in root.iterdir() if p.is_dir() and len(p.name)==22 and p.name.endswith('Z'))
         for old in snapshots[:-7]:
@@ -64,7 +68,7 @@ def restore_backup(store,backup):
             # Resolve through registered cases; backup input cannot choose arbitrary destinations.
             project=store.project(item['id'])
             parts=item.get('parts',[]) if manifest['format']==2 else ['interior-studio']
-            if not parts or any(part not in ('interior-studio','plan-import') for part in parts):raise ValueError('案件備份種類無效')
+            if not parts or any(part not in ('interior-studio','plan-import','project-session') for part in parts):raise ValueError('案件備份種類無效')
             for part in parts:
                 source=root/'projects'/item['id']
                 if manifest['format']==2:source=source/part

@@ -44,10 +44,12 @@ class BatchRequest(Strict):
 
 def inventory(scene):
     items=[]
+    objects={o['id']:(index,o) for index,o in enumerate(scene['objects'])}
+    concepts={f['id']:f for f in scene.get('concept_furniture',[])}
     for g in scene['groups']:
         if g['deleted']:continue
-        concept=next((f for f in scene.get('concept_furniture',[]) if f['id']==g['id']),None)
-        parts=[o for o in scene['objects'] if o['id'] in g['children']]
+        concept=concepts.get(g['id'])
+        parts=[o for _,o in sorted((objects[i] for i in set(g['children']) if i in objects),key=lambda item:item[0])]
         label=' '.join([(concept or {}).get('asset',''),g['name'],*([p.get('name','') for p in parts] if not g.get('asset_reference') else [])])
         category=next((k for k,p in WORDS.items() if re.search(p,label,re.I)),'other')
         purpose=requirements(dict(group=g,concept=concept))['purpose']

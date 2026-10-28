@@ -25,11 +25,27 @@ class AssetReference(Strict):
         if self.url!=f'https://www.blenderkit.com/asset-gallery-detail/{self.asset_id}/':raise ValueError('素材來源網址與 ID 不一致')
         return self
 
+class RenderFinish(Strict):
+    """Non-destructive Cycles finish; original textures and UVs stay connected."""
+    albedo_gain: tuple[float,float,float] = (1,1,1)
+    roughness_delta: float = Field(default=0,ge=-.2,le=.25)
+    bump_factor: float = Field(default=1,ge=.1,le=1)
+    bevel: float = Field(default=0,ge=0,le=.003)
+    textile: float = Field(default=0,ge=0,le=1)
+    cabinet_front: Literal['none','+X','-X','+Y','-Y'] = 'none'
+
+    @model_validator(mode='after')
+    def bounded_color(self):
+        if any(not .65<=v<=1.2 for v in self.albedo_gain):raise ValueError('材質色彩微調超出界限')
+        return self
+
 class Material(Strict):
     description: str = Field(default='', max_length=4000)
     url: str = Field(default='', max_length=2000)
     color: str | None = Field(default=None, pattern=r'^#[0-9a-fA-F]{6}$')
     roughness: float = Field(default=.5, ge=0, le=1)
+    render_roughness: float | None = Field(default=None, ge=.15, le=1)
+    render_finish: RenderFinish | None = None
     candidate_id: str | None = None
     asset_reference: AssetReference | None = None
 
@@ -98,7 +114,23 @@ class GeneratedReference(Strict):
         if self.purpose not in SUPPORTED:raise ValueError('不支援的概念家具用途')
         return self
 
+class DecorContext(Strict):
+    """Object identity survives replacement; support is a separate relationship."""
+    purpose: Literal['vase','books','tableware','cookware','soap','plant','rug']
+    support_group_id: str = Field(min_length=1,max_length=100)
+    proposal_id: str = Field(pattern=r'^[a-f0-9]{32}$')
+
+class FixtureInstallation(Strict):
+    mode: Literal['surface','recessed','pendant']
+    ceiling_group_id: str
+    ceiling_z: float
+    recess_depth: float = Field(ge=0,le=.08)
+    agent_task_id: str | None = None
+    verified: bool
+
 class ObjectGroup(Strict):
+    intake_metadata: dict = Field(default_factory=dict)
+    fixture_installation: FixtureInstallation | None = None
     id: str = Field(min_length=1, max_length=100)
     name: str = Field(min_length=1, max_length=200)
     children: list[str] = Field(min_length=1, max_length=50000)
@@ -109,19 +141,24 @@ class ObjectGroup(Strict):
     method: str = 'individual'
     editor_kind: Literal['furniture','decor'] | None = None
     design_prompt: str = Field(default='',max_length=2000)
+    style_prompt: str | None = Field(default=None,max_length=2000)
     model_url: str = Field(default='',max_length=2000)
     asset_requirements: AssetRequirements | None = None
     object_specification: ObjectSpecification | None = None
     placement_constraints: PlacementConstraints | None = None
     asset_reference: AssetReference | None = None
     generated_reference: GeneratedReference | None = None
+    decor_context: DecorContext | None = None
 
 class Shot(Strict):
+    aspect: Literal['4:3','16:9'] = '4:3'
+    eye: tuple[float,float,float] | None = None
     id: str = Field(pattern=r'^[a-zA-Z0-9_-]{1,80}$')
     name: str = Field(min_length=1, max_length=120)
     yaw: float = Field(ge=-360, le=360)
     pitch: float = Field(default=0, ge=-85, le=85)
     lens: float = Field(default=24, ge=12, le=150)
+    shift_y: float = Field(default=0, ge=-.3, le=.3)
 
 class Viewpoint(Strict):
     id: str = Field(pattern=r'^[a-zA-Z0-9_-]{1,80}$')
@@ -181,7 +218,66 @@ class ConceptFurniture(Strict):
         return self
 
 
+class ShelfRefinement(Strict):
+    asset_bundle: str | None = Field(default=None,pattern=r'^[a-f0-9]{32}$')
+    object_id: str
+    front: Literal['+X','-X','+Y','-Y']
+    evidence: str = Field(min_length=8,max_length=2000)
+    contents: list[Literal['microwave','coffee_machine','magazines']] = Field(default_factory=list,max_length=3)
+
+class CompletionFront(Strict):
+    group_id: str
+    signature: str = Field(pattern=r'^[a-f0-9]{64}$')
+    front: Literal['+X','-X','+Y','-Y']
+    evidence: str = Field(min_length=8,max_length=2000)
+
+class InstallationReplacement(Strict):
+    group_id: str
+    bundle: str = Field(pattern=r'^[a-f0-9]{32}$')
+
+class DoorPartMaterial(Strict):
+    color: str = Field(default="#bca07b",pattern=r"^#[0-9a-fA-F]{6}$")
+    roughness: float = Field(default=.6,ge=0,le=1)
+
+class DoorAssetBinding(Strict):
+    bundle: str = Field(pattern=r"^[a-f0-9]{32}$")
+    reference: AssetReference
+
+class DoorControl(Strict):
+    assets: dict[Literal["frame","leaf-0","leaf-1"],DoorAssetBinding] = Field(default_factory=dict)
+    allow_width_adjustment: bool = False
+    assembly_width: float | None = Field(default=None,ge=.5,le=3)
+    min_passage: float = Field(default=.70,ge=.5,le=1.5)
+    materials: dict[Literal["frame","leaf-0","leaf-1"],DoorPartMaterial] = Field(default_factory=dict)
+    deleted: bool = False
+    opening_id: str = Field(min_length=1,max_length=100)
+    hinge: Literal['auto','A','B'] = 'auto'
+    swing: Literal['auto','positive','negative'] = 'auto'
+    name: str | None = Field(default=None,max_length=120)
+    kind: Literal['single','double','sliding','frame','folding'] | None = None
+    side: Literal['positive','negative'] | None = None
+
+class ManualDoor(Strict):
+    id: str = Field(pattern=r'^door-[a-f0-9-]{36}$')
+    name: str = Field(min_length=1,max_length=120)
+    points: tuple[tuple[float,float],tuple[float,float]]
+    height: float = Field(default=2.1,gt=.3,lt=4)
+
+    @model_validator(mode='after')
+    def span(self):
+        import math
+        if not .25 < math.dist(*self.points) < 8:raise ValueError('門寬需介於 25 cm 與 8 m')
+        return self
+
 class Scene(Strict):
+    intake_handoff: dict = Field(default_factory=dict)
+    manual_doors: list[ManualDoor] = Field(default_factory=list,max_length=200)
+    installation_replacements: list[InstallationReplacement] = Field(default_factory=list,max_length=100)
+    door_controls: list[DoorControl] = Field(default_factory=list,max_length=200)
+    completion_fronts: list[CompletionFront] = Field(default_factory=list,max_length=200)
+    completion_details: bool = False
+    opening_details: bool = False
+    shelf_refinements: list[ShelfRefinement] = Field(default_factory=list,max_length=30)
     model_id: str
     rooms: list[Room] = Field(max_length=100)
     objects: list[ObjectAssignment] = Field(max_length=50000)
@@ -191,10 +287,18 @@ class Scene(Strict):
     viewpoints: list[Viewpoint] = Field(default_factory=list, max_length=100)
     links: list[tuple[str, str]] = Field(default_factory=list, max_length=1000)
     lighting: Literal['existing'] = 'existing'
+    ceiling_infill: list[str] = Field(default_factory=list,max_length=200)
+    illustrative_exteriors: list[str] = Field(default_factory=list,max_length=30)
     lighting_setup: LightingSetup = Field(default_factory=LightingSetup)
 
     @model_validator(mode='after')
     def references(self):
+        if len({r.group_id for r in self.installation_replacements})!=len(self.installation_replacements) or any(r.group_id not in {g.id for g in self.groups} for r in self.installation_replacements):raise ValueError('安裝替換需引用唯一現有家具')
+        if len({d.opening_id for d in self.door_controls})!=len(self.door_controls):raise ValueError("門的設定不可重複")
+        if len({d.id for d in self.manual_doors})!=len(self.manual_doors):raise ValueError('新增門不可重複')
+        if len({f.group_id for f in self.completion_fronts})!=len(self.completion_fronts) or any(f.group_id not in {g.id for g in self.groups} for f in self.completion_fronts):raise ValueError('使用側證據必須引用存在且不重複的家具群組')
+        if len(set(self.ceiling_infill))!=len(self.ceiling_infill) or any(k not in {o.id for o in self.objects} for k in self.ceiling_infill):raise ValueError("天花補面必須引用不重複的原生地板構件")
+        if len(set(self.illustrative_exteriors))!=len(self.illustrative_exteriors) or any(k not in {g.id for g in self.groups} for k in self.illustrative_exteriors):raise ValueError('示意窗景必須引用存在且不重複的外窗群組')
         if len({f.id for f in self.concept_furniture})!=len(self.concept_furniture):raise ValueError('新增家具識別碼重複')
         for item in self.concept_furniture:
             group=next((g for g in self.groups if g.id==item.id),None)
@@ -202,6 +306,8 @@ class Scene(Strict):
         for items in (self.rooms, self.objects, self.viewpoints):
             if len({i.id for i in items}) != len(items):
                 raise ValueError('識別碼不可重複')
+        ids=[s.object_id for s in self.shelf_refinements]
+        if len(ids)!=len(set(ids)) or any(k not in {o.id for o in self.objects} for k in ids):raise ValueError('層架細化需引用唯一現有物件')
         rooms = {r.id for r in self.rooms}
         lights=self.lighting_setup.lights
         if len({l.id for l in lights})!=len(lights):raise ValueError('光源識別碼不可重複')
@@ -237,9 +343,15 @@ class SaveScene(Strict):
     scene: Scene
 
 class StartWorkflow(Strict):
+    realism_all: bool = False
+    prepare_openings: bool = False
+    realism_brief: str = Field(default='',max_length=12000)
     base_revision: str
     operation_id: str = Field(pattern=r'^[a-zA-Z0-9_-]{8,100}$')
     quality: Literal['preview', 'final'] = 'preview'
+    scene_review: bool = False
+    realism_point_id: str | None = Field(default=None,pattern=r'^[a-zA-Z0-9_-]{1,80}$')
+    agent_model: str | None = Field(default=None, max_length=120)
 
 class ConfirmWorkflow(Strict):
     base_revision: str

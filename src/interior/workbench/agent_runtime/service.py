@@ -7,18 +7,21 @@ from uuid import uuid4
 from PIL import Image, ImageDraw
 from .codex import CodexRuntime, select_model
 from ..storage import now, read_json, write_json
+from .activity import ACTIVE, describe, record_phase, summary
 
 class AgentTasks:
     def __init__(self, state_dir):
         self.root=Path(state_dir).resolve()/'agent-tasks'
         self.lock=threading.RLock()
         self.active={}
+        self._worklist_cache={}
+        self._worklist_lock=threading.Lock()
         self.slots=threading.Semaphore(1)
         self.root.mkdir(parents=True,exist_ok=True)
         for path in self.root.glob('*/task.json'):
             prior=read_json(path)
             if prior.get('status') in ('running','queued','stopping'):
-                prior.update(status='interrupted',error='服務已重新啟動；任務不會自動重新執行')
+                prior.update(status='interrupted',error='服務已重新啟動；任務不會自動重新執行',finished_at=now(),updated_at=now())
                 write_json(path,prior)
 
     def status(self):
@@ -31,15 +34,17 @@ class AgentTasks:
             client.close()
 
     def start(self,kind,model=None,payload=None,identifier=None):
-        if kind not in ('connection','vision','tool','browser','material','plan_image','plan_refine','layout_design','asset_match','asset_batch','object_specs','asset_generate','asset_adjust'):
+        if kind not in ('cad_experience_batch','plan_semantics','fixture_install','fixture_lighting','editor_viewpoint','door_design','connection','vision','tool','browser','material','plan_image','plan_refine','layout_design','asset_match','asset_batch','object_specs','asset_generate','asset_adjust','asset_review'):
             raise ValueError('不支援的 Agent 任務')
         identifier=identifier or uuid4().hex
         if (self.root/identifier/'task.json').exists():
             return self.get(identifier)
-        result=dict(id=identifier,kind=kind,model=model,status='queued',created_at=now(),evidence=None)
+        result=dict(id=identifier,kind=kind,model=model,status='queued',created_at=now(),evidence=None,activity=describe(kind,payload or {}))
+        record_phase(result,'等待 Agent 工作槽')
         write_json(self.root/identifier/'input.json',payload or {})
         if kind=='asset_batch' and payload and payload.get('targets') and all(t.get('keep_original') for t in payload['targets']):
-            result.update(status='passed',finished_at=now(),phase='全部選擇保留原件；未呼叫 Agent',completed=[t['task_id'] for t in payload['targets']])
+            result.update(status='passed',finished_at=now(),completed=[t['task_id'] for t in payload['targets']])
+            record_phase(result,'全部選擇保留原件；未呼叫 Agent')
             write_json(self.root/identifier/'task.json',result)
             if payload.get('result_path'):write_json(Path(payload['result_path']),result)
             return result
@@ -54,6 +59,39 @@ class AgentTasks:
             raise ValueError('任務識別碼無效')
         return read_json(self.root/identifier/'task.json')
 
+    def list(self,history_limit=20,history_offset=0):
+        """List saved snapshots without advancing workflows or calling a model."""
+        with self._worklist_lock:
+            return self._list_snapshots(history_limit,history_offset)
+
+    def _list_snapshots(self,history_limit,history_offset):
+        active=[];history=[];unavailable=0
+        seen=set()
+        for path in self.root.glob('*/task.json'):
+            seen.add(path)
+            try:
+                stat=path.stat();stamp=(stat.st_mtime_ns,stat.st_size)
+                cached=self._worklist_cache.get(path)
+                if cached and cached[0]==stamp:
+                    item=cached[1]
+                else:
+                    task=read_json(path)
+                    if not isinstance(task,dict) or not all(task.get(k) for k in ('id','kind','status')):
+                        raise ValueError('工作紀錄缺少身分或狀態')
+                    if 'activity' not in task:
+                        input_path=path.parent/'input.json'
+                        task['activity']=describe(task['kind'],read_json(input_path) if input_path.exists() else {})
+                    item=summary(task)
+                    self._worklist_cache[path]=(stamp,item)
+                (active if item['status'] in ACTIVE else history).append(item)
+            except (OSError,ValueError,TypeError,AttributeError,KeyError):
+                unavailable+=1
+        for path in self._worklist_cache.keys()-seen:
+            del self._worklist_cache[path]
+        active.sort(key=lambda t:(t['status']=='queued',t.get('created_at',''),t['id']))
+        history.sort(key=lambda t:(t.get('finished_at') or t.get('created_at',''),t['id']),reverse=True)
+        return dict(active=active,history=history[history_offset:history_offset+history_limit],history_total=len(history),unavailable=unavailable)
+
     def _run(self,result,payload):
         directory=self.root/result['id']
         client=None
@@ -62,6 +100,8 @@ class AgentTasks:
             if self.get(result['id'])['status']=='stopping':
                 return
             result['status']='running'
+            result['started_at']=now()
+            record_phase(result,'連接 Agent 並檢查登入與模型')
             write_json(directory/'task.json',result)
             client=CodexRuntime(directory)
             with self.lock:
@@ -78,15 +118,17 @@ class AgentTasks:
                 with self.lock:
                     if self.get(result['id'])['status']=='stopping':
                         raise RuntimeError('辨識已要求停止')
-                    result['phase']=phase
+                    record_phase(result,phase)
                     write_json(directory/'task.json',result)
+            progress('Agent 已連線，準備執行工作')
             kind=result['kind']
             image=None
             mcp=None
             if kind=='connection':
                 prompt='只回覆 STUDIO_READY。'
-            elif kind in ('layout_design','asset_match','asset_batch','object_specs','asset_generate','asset_adjust'):
-                if kind=='asset_batch' and any(t.get('images') for t in payload.get('targets',[])):
+            elif kind in ('cad_experience_batch','plan_semantics','fixture_install','fixture_lighting','editor_viewpoint','door_design','layout_design','asset_match','asset_batch','object_specs','asset_generate','asset_adjust','asset_review'):
+                if kind in ('plan_semantics','cad_experience_batch','fixture_lighting') and 'image' not in selected.get('inputModalities',[]):raise ValueError('用途判讀需要支援圖片的模型')
+                if kind=='asset_review' or (kind=='asset_batch' and any(t.get('images') for t in payload.get('targets',[]))):
                     available=selected
                     if not available or 'image' not in available.get('inputModalities',[]):raise ValueError('風格參考圖需要支援圖片的 Agent 模型；請在 Agent 設定選擇後重試')
                 prompt=''
@@ -124,7 +166,35 @@ class AgentTasks:
                 if packet.get('method') in ('item/completed','turn/completed','error'):
                     with self.lock, (directory/'events.jsonl').open('a',encoding='utf-8') as stream:
                         stream.write(json.dumps(packet,ensure_ascii=False)+'\n')
-            if kind=='asset_batch':
+                        result['last_activity_at']=now()
+                        result['updated_at']=result['last_activity_at']
+                        if self.get(result['id'])['status']!='stopping':
+                            write_json(directory/'task.json',result)
+            if kind=='cad_experience_batch':
+                from ..studio.experience_batch import run_grouping
+                result.update(run_grouping(client,directory,payload,result['model'],progress,event))
+                passed=True
+            elif kind=='plan_semantics':
+                from ..studio.plan_semantics import run_semantics
+                result.update(run_semantics(client,directory,payload,result['model'],progress,event))
+                passed=True
+            elif kind=='fixture_install':
+                from ..studio.fixture_installation import run_installation
+                result.update(run_installation(client,directory,payload,result['model'],progress,event))
+                passed=True
+            elif kind=='fixture_lighting':
+                from ..studio.fixture_lighting import run_fixture_lighting
+                result.update(run_fixture_lighting(client,directory,payload,result['model'],progress,event))
+                passed=True
+            elif kind=='editor_viewpoint':
+                from ..studio.viewpoint_repair import run_agent
+                result.update(run_agent(client,directory,payload,result['model'],progress,event))
+                passed=True
+            elif kind=='door_design':
+                from ..studio.door_design import run_door_design
+                result.update(run_door_design(client,directory,payload,result['model'],progress,event))
+                passed=True
+            elif kind=='asset_batch':
                 progress('檢查模型連線：'+result['model'])
                 result['preflight']=client.run('只回覆 STUDIO_READY。',model=result['model'],timeout=90,on_event=event)
                 if result['preflight']['text'].strip()!='STUDIO_READY':
@@ -141,6 +211,10 @@ class AgentTasks:
             elif kind=='asset_match':
                 from ..studio.asset_matching import run_matching
                 result.update(run_matching(client,directory,payload,result['model'],progress,event))
+                passed=True
+            elif kind=='asset_review':
+                from ..studio.decor_review import run_review
+                result.update(run_review(client,directory,payload,result['model'],progress,event))
                 passed=True
             elif kind=='asset_adjust':
                 from ..studio.selected_repair import run_repair
@@ -165,7 +239,7 @@ class AgentTasks:
             else:
                 response=client.run(prompt,model=result['model'],image=image,mcp=mcp,timeout=600 if kind=='plan_image' else 240,on_event=event)
                 result['response']=response
-            if kind in ('plan_refine','layout_design','asset_match','asset_batch','object_specs','asset_generate','asset_adjust'):
+            if kind in ('cad_experience_batch','plan_semantics','fixture_install','fixture_lighting','editor_viewpoint','door_design','plan_refine','layout_design','asset_match','asset_batch','object_specs','asset_generate','asset_adjust','asset_review'):
                 pass
             elif kind=='connection':
                 passed=response['text'].strip()=='STUDIO_READY'
@@ -234,8 +308,9 @@ class AgentTasks:
                 if prior.get('status')=='stopping':
                     result['status']='stopped'
                 result['finished_at']=now()
+                result['updated_at']=result['finished_at']
                 write_json(directory/'task.json',result)
-                if result['kind'] in ('plan_image','plan_refine','layout_design','asset_match','asset_batch','object_specs','asset_generate','asset_adjust') and payload.get('result_path'):
+                if result['kind'] in ('cad_experience_batch','plan_image','plan_refine','plan_semantics','layout_design','asset_match','asset_batch','object_specs','asset_generate','asset_adjust','asset_review') and payload.get('result_path'):
                     write_json(Path(payload['result_path']),result)
             self.slots.release()
 
@@ -245,6 +320,7 @@ class AgentTasks:
             client=self.active.get(identifier)
             if task['status'] in ('queued','running'):
                 task['status']='stopping'
+                task['updated_at']=now()
                 write_json(self.root/identifier/'task.json',task)
             if client:
                 for worker in client:

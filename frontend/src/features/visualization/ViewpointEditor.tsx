@@ -1,11 +1,20 @@
+import {IncompleteList,IncompleteDetail} from './IncompleteItems';
+import type {IncompleteItem} from './configurationIncomplete';
+import {viewpointIncomplete} from './editorDiagnostics';
+import {useEditorIssues} from './useEditorIssues';
+import ConfigurationDock from './ConfigurationDock';
 import {EditorTools,EditorInspector} from './EditorWorkspace';
 import EditorToolbar from './EditorToolbar';
-import {useRef,useState} from 'react';
+import {useMemo,useRef,useState} from 'react';
 import {fileUrl} from './api';
 import type {Scene} from './api';
 import SpaceViewport from './SpaceViewport';
 
-export default function ViewpointEditor({scene,project,busy,onChange,onContinue,canUndo,onUndo,active}:{active:boolean;canUndo:boolean;onUndo:()=>void;scene:Scene;project:string;busy:boolean;onChange:(s:Scene)=>void;onContinue:()=>void}){
+export default function ViewpointEditor({scene,project,busy,onChange,onContinue,canUndo,onUndo,active,revision}:{revision:string|null;active:boolean;canUndo:boolean;onUndo:()=>void;scene:Scene;project:string;busy:boolean;onChange:(s:Scene)=>void;onContinue:()=>void}){
+  const recorded=useEditorIssues(project,revision,active);
+  const [incomplete,setIncomplete]=useState<IncompleteItem[]>([]),[focusGroup,setFocusGroup]=useState<{id:string;serial:number}|undefined>();
+  const issues=useMemo(()=>viewpointIncomplete(scene,recorded.issues),[scene,recorded.issues]);
+  function locate(item:IncompleteItem){select(item.id);setShotId(item.target?.shotId||'');setPreview(false);setFocusGroup({id:item.id,serial:performance.now()});}
   const [selected,setSelected]=useState(scene.viewpoints[0]?.id||'');
   const [preview,setPreview]=useState(false),[shotId,setShotId]=useState(''),[reset,setReset]=useState(0);
 
@@ -20,11 +29,12 @@ export default function ViewpointEditor({scene,project,busy,onChange,onContinue,
       <button role="tab" aria-selected={preview} disabled={!point} onClick={()=>setPreview(true)}>3D 畫面</button>
     </>} actions={<>
       <button disabled={!modelReady||!scene.rooms.length||busy} onClick={add}>＋ 新增觀看點</button>
+      <button disabled title="觀看點的 Agent 自動配置尚未開放">一鍵配置</button>
       <button disabled={!canUndo||busy} onClick={()=>{onUndo();setPreview(false);}}>復原上一步</button>
-    </>}><span>{scene.viewpoints.length} 個觀看點 · {scene.links.length} 組雙向連結</span></EditorToolbar>
+    </>}><span className="editor-toolbar-summary">{scene.viewpoints.length} 個觀看點 · {scene.links.length} 組雙向連結</span><ConfigurationDock disabled title="觀看點的 Agent 自動配置尚未開放" unfinished={<IncompleteList items={issues} resetKey={project+scene.model_id} incompleteSelected={selected} onIncomplete={setIncomplete} onLocateIncomplete={locate}/>}/></EditorToolbar>
     </EditorTools><div className="space-editor-grid">
       <div>
-        {active&&<SpaceViewport url={fileUrl(project,scene.model_id,'model.glb')} design={scene} mode={preview?'walk':'plan'} selected="" child="" moving={false} onSelect={()=>{}} onMove={()=>{}}
+        {active&&<SpaceViewport incomplete={incomplete} incompleteSelected={selected} focusGroup={focusGroup} onIncompleteSelect={locate} url={fileUrl(project,scene.model_id,'model.glb')} design={scene} mode={preview?'walk':'plan'} selected="" child="" moving={false} onSelect={()=>{}} onMove={()=>{}}
           pointEditing pointId={selected} focusPoint={point} focusShot={shot} previewReset={reset} onPointSelect={select}
           onPlanCenter={xy=>{center.current=xy;setModelReady(true);}} onPointMove={(id,xy)=>edit(s=>{const p=s.viewpoints.find(p=>p.id===id)!;p.eye=[xy[0],xy[1],p.eye[2]];})}/>}
         <div className="space-bottom"><span>{preview?`${point?.name||''} · ${shot?.name||'預設方向'} · 預覽操作不改鏡位`:'點選編號查看設定，拖曳圓點移動；線段表示雙向連結。'}</span>
@@ -32,7 +42,8 @@ export default function ViewpointEditor({scene,project,busy,onChange,onContinue,
         </div>
         {!scene.viewpoints.length&&<p className="empty-points">先新增觀看點，再拖到想要觀看空間的位置。每點會產生一張 360° 全景。</p>}
       </div>
-      <EditorInspector>
+      <EditorInspector revealKey={focusGroup?.serial}>
+        <IncompleteDetail item={issues.find(i=>i.id===selected)}/>{recorded.error&&<p role="alert">試圖檢查紀錄讀取未完成：{recorded.error}；清單目前只含參數檢查。</p>}
         <h3>觀看點設定</h3>
         <label>選取觀看點<select aria-label="選取觀看點" value={point?.id||''} onChange={e=>select(e.target.value)}><option value="" disabled>請新增或選取觀看點</option>{scene.viewpoints.map((p,i)=><option key={p.id} value={p.id}>{String(i+1).padStart(2,'0')} · {p.name}</option>)}</select></label>
         {point?<>
@@ -47,8 +58,9 @@ export default function ViewpointEditor({scene,project,busy,onChange,onContinue,
           <div className="point-connections">{scene.viewpoints.filter(p=>p.id!==point.id).map(p=><label className="inline-check" key={p.id}><input type="checkbox" checked={scene.links.some(edge=>edge.includes(point.id)&&edge.includes(p.id))} onChange={e=>edit(s=>{s.links=s.links.filter(edge=>!(edge.includes(point.id)&&edge.includes(p.id)));if(e.target.checked)s.links.push([point.id,p.id]);})}/>{point.name} ↔ {p.name}</label>)}{scene.viewpoints.length<2&&<p>新增第二個觀看點後即可建立連結。</p>}</div>
           <h4>此點的效果圖</h4><p>另含一張 360° 全景。以下每個方向各產生一張效果圖。</p>
           {point.shots.map(s=><div className="shot-card" key={s.id}><input aria-label="方向名稱" value={s.name} onChange={e=>edit(d=>{d.viewpoints.find(p=>p.id===point.id)!.shots.find(x=>x.id===s.id)!.name=e.target.value;})}/>
+            <label>出圖畫幅<select aria-label={`出圖畫幅 ${s.name}`} value={s.aspect||'4:3'} onChange={e=>edit(d=>{d.viewpoints.find(p=>p.id===point.id)!.shots.find(x=>x.id===s.id)!.aspect=e.target.value as '4:3'|'16:9';})}><option value="4:3">4:3 標準</option><option value="16:9">16:9 橫幅 · 減少上下留白</option></select></label>
             {(['yaw','pitch','lens'] as const).map((key,i)=><label key={key}>{['水平角度 °','俯仰角度 °','焦距 mm'][i]}<input type="number" value={s[key]} onChange={e=>edit(d=>{d.viewpoints.find(p=>p.id===point.id)!.shots.find(x=>x.id===s.id)![key]=Number(e.target.value);})}/></label>)}
-            <button onClick={()=>{setShotId(s.id);setPreview(true);setReset(n=>n+1);}}>預覽此方向</button><button onClick={()=>edit(d=>{const p=d.viewpoints.find(p=>p.id===point.id)!;p.shots=p.shots.filter(x=>x.id!==s.id);})}>移除此方向</button>
+            <>{s.eye&&<p className="muted">試圖自動取景位置：{s.eye.map(v=>v.toFixed(2)).join("、")} m <button onClick={()=>edit(d=>{d.viewpoints.find(p=>p.id===point.id)!.shots.find(x=>x.id===s.id)!.eye=null;})}>回到觀看點位置</button></p>}</><button onClick={()=>{setShotId(s.id);setPreview(true);setReset(n=>n+1);}}>預覽此方向</button><button onClick={()=>edit(d=>{const p=d.viewpoints.find(p=>p.id===point.id)!;p.shots=p.shots.filter(x=>x.id!==s.id);})}>移除此方向</button>
           </div>)}
           <button onClick={()=>edit(d=>{const p=d.viewpoints.find(p=>p.id===point.id)!;p.shots.push({id:'shot-'+crypto.randomUUID().slice(0,8),name:`方向 ${String(p.shots.length+1).padStart(2,'0')}`,yaw:0,pitch:0,lens:24});})}>＋ 新增效果圖方向</button>
           <button className="danger" onClick={()=>{edit(d=>{d.viewpoints=d.viewpoints.filter(p=>p.id!==point.id);d.links=d.links.filter(edge=>!edge.includes(point.id));});select(scene.viewpoints.find(p=>p.id!==point.id)?.id||'');setPreview(false);}}>刪除觀看點</button>

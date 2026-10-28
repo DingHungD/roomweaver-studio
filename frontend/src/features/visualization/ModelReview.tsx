@@ -1,0 +1,5 @@
+export type ReviewEvidence={review_images?:string[];visual_review?:{job_id?:string;status:string;reason?:string};repair_notes?:string[];adjustment?:{reason:string}};
+export default function ModelReview({project,evidence}:{project:string;evidence:ReviewEvidence}){
+  const review=evidence.visual_review;
+  return <>{evidence.adjustment&&<p>模型修正：{evidence.adjustment.reason}</p>}{evidence.repair_notes?.map((note,i)=><p key={i}>改試候選：{note}</p>)}{review&&<details><summary>實際模型檢查 · {review.status==='pass'?'Agent 看圖通過，待您預覽':review.status==='retry'?'發現問題，已交回修正':'尚待確認'}</summary><p>{review.reason}</p>{review.job_id&&<div style={{display:'flex',gap:8,flexWrap:'wrap'}}>{evidence.review_images?.map((file,i)=>{const url=`/api/studio/projects/${encodeURIComponent(project)}/files/${review.job_id}/${encodeURIComponent(file)}`;return <a key={file} href={url} target="_blank" rel="noreferrer"><img loading="lazy" style={{width:160,maxWidth:'100%'}} src={url} alt={file.includes('context')?'實際放置位置（局部剖視）':`實際模型角度 ${i+1}`}/></a>;})}</div>}<small>局部檢查使用原生材質；最終比例、方向與整體配置仍請在場景中預覽。</small></details>}</>;
+}

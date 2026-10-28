@@ -17,7 +17,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+sketchup = ["openskp==1.3.0"]
 agent = ["mcp==2.3.0", "playwright==1.63.0"]
+recognition = ["ultralytics==8.4.184", "numpy==2.4.6", "scipy==1.17.1"]
 dev = ["pytest>=8,<10", "build>=1,<2"]
 
 [project.scripts]
@@ -27,7 +29,7 @@ roomweaver = "interior.workbench.__main__:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-interior = ["workbench_web/dist/*", "workbench_web/dist/assets/*"]
+interior = ["workbench_web/dist/*", "workbench_web/dist/assets/*", "visualization/assets/*", "workbench/studio/*.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

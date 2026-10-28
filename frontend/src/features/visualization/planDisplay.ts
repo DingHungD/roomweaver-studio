@@ -14,21 +14,26 @@ export class PlanDisplay {
   apply(root:THREE.Object3D,floors:Set<THREE.Mesh>,soft=false,planes:THREE.Plane[]=[]){
     this.restore();
     const used=new Set<THREE.Material>();
+    const converted=new Map<THREE.Material,(THREE.Material|undefined)[]>();
     root.traverse(o=>{
       if(!(o instanceof THREE.Mesh))return;
       this.originals.set(o,o.material);
       const convert=(source:THREE.Material)=>{
-        used.add(source);
         const surface=source as THREE.MeshStandardMaterial;
         const floor=floors.has(o);
+        let current=converted.get(source);if(!current){current=[];converted.set(source,current);}
+        const slot=floor?1:0;if(current[slot])return current[slot]!;
+        used.add(source);
         const key=`${soft}:${floor}:${source.version}`;
         let variants=this.cache.get(source);if(!variants){variants=new Map();this.cache.set(source,variants);}
         for(const [old,m] of variants)if(!old.endsWith(`:${source.version}`)){m.dispose();this.previews=this.previews.filter(p=>p!==m);variants.delete(old);}
         const cached=variants.get(key);
-        if(cached){cached.clippingPlanes=soft?planes:null;cached.needsUpdate=true;
+        if(cached){const nextPlanes=soft?planes:null;
+          if((cached.clippingPlanes?.length||0)!==(nextPlanes?.length||0))cached.needsUpdate=true;
+          cached.clippingPlanes=nextPlanes;
           if(soft||!floor)(cached as THREE.MeshStandardMaterial).color.copy(surface.color??new THREE.Color(0xffffff));
           if(soft)(cached as THREE.MeshStandardMaterial).roughness=surface.roughness??1;
-          return cached;
+          current[slot]=cached;return cached;
         }
         const material=soft?surface.isMeshStandardMaterial?surface.clone():new THREE.MeshStandardMaterial({
           color:surface.color??0xffffff,map:surface.map??null,alphaMap:surface.alphaMap??null,
@@ -46,7 +51,7 @@ export class PlanDisplay {
           // A lamp's self-emission is not allowed to wash out the neutral editing view.
           material.emissiveIntensity=0;material.clippingPlanes=planes;material.clipShadows=true;
         }
-        this.previews.push(material);variants.set(key,material);return material;
+        this.previews.push(material);variants.set(key,material);current[slot]=material;return material;
       };
       o.material=Array.isArray(o.material)?o.material.map(convert):convert(o.material);
     });

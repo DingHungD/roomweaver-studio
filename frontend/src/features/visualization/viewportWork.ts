@@ -1,5 +1,13 @@
 import * as THREE from 'three';
 
+/** Release shared imported resources once, rather than once per placed primitive. */
+export function disposeScene(root:THREE.Object3D){
+ const geometries=new Set<THREE.BufferGeometry>(),materials=new Set<THREE.Material>(),textures=new Set<THREE.Texture>();
+ root.traverse(o=>{if(o instanceof THREE.Mesh||o instanceof THREE.Line){geometries.add(o.geometry);for(const m of Array.isArray(o.material)?o.material:[o.material])materials.add(m);}});
+ for(const material of materials)for(const value of Object.values(material))if(value instanceof THREE.Texture)textures.add(value);
+ geometries.forEach(g=>g.dispose());textures.forEach(t=>t.dispose());materials.forEach(m=>m.dispose());
+}
+
 /** Ignore hidden rooms/parts and editor outlines before expensive triangle tests. */
 export function pickMeshes(...roots:THREE.Object3D[]){
  const meshes:THREE.Mesh[]=[];

@@ -31,7 +31,7 @@ def test_dxf_to_scene_and_real_render(tmp_path):
         folder=studio.root('PLAN')/job['output']
         assert result['handoff']['status']=='passed'
         assert (folder/'model.blend').is_file() and (folder/'model.glb').is_file()
-        assert len(revision['scene']['groups'])==8  # walls + floor + 4 independent furniture + 2 windows
+        assert len(revision['scene']['groups'])==10  # walls + floor + 4 furniture + 2 windows + 2 doors
         check_script=REPO/'tests/fixtures/visualization/check_plan_apertures.py'
         proof=subprocess.run([blender_executable(),'--background','--disable-autoexec','--python-exit-code','1',str(folder/'model.blend'),'--python',str(check_script)],capture_output=True,timeout=90)
         (folder/'apertures.log').write_bytes(proof.stdout+proof.stderr)

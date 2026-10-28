@@ -28,7 +28,8 @@ def choose_fit(target, asset, *, envelope=False, policy=None, allow_rotate=True)
     target=list(dimensions if mode=='confirmed' else
                 [min(a,b) for a,b in zip(target,dimensions)] if mode=='envelope' else
                 dimensions or target)
-    soft=mode in ('unknown','estimated') and purpose in HEIGHTS and not envelope
+    fixture=mode in ('unknown','estimated') and purpose=='light' and policy.get('installation_mode') in ('surface','recessed','pendant')
+    soft=mode in ('unknown','estimated') and purpose in HEIGHTS and not envelope or fixture
     choices=[]; failures=[]
     orientations=[(0,list(asset))]+([(90,[asset[1],asset[0],asset[2]])] if allow_rotate else [])
     for angle,extent in orientations:
@@ -38,6 +39,10 @@ def choose_fit(target, asset, *, envelope=False, policy=None, allow_rotate=True)
         if mode=='confirmed':
             if any(abs(r-t)>max(.002,t*.02) for r,t in zip(result,target)):
                 failures.append('素材不符合已確認三軸尺寸（容差 2%）；改試候選');continue
+        elif fixture:
+            limits=(.08,2.5) if policy['installation_mode']=='pendant' else (.005,.6)
+            if not limits[0]<=result[2]<=limits[1] or min(result[:2])<.025:
+                failures.append('燈具本體尺寸不符合所選安裝方式，請改試候選');continue
         elif purpose in HEIGHTS:
             lower,upper=HEIGHTS[purpose]
             if not lower<=result[2]<=upper:
@@ -57,7 +62,7 @@ def choose_fit(target, asset, *, envelope=False, policy=None, allow_rotate=True)
 def fit_report(target, result, policy):
     mode=policy.get('dimension_source','unknown');purpose=policy.get('purpose')
     reference=list(policy.get('dimensions') or target)
-    soft=mode in ('unknown','estimated') and purpose in HEIGHTS
+    soft=mode in ('unknown','estimated') and (purpose in HEIGHTS or purpose=='light' and policy.get('installation_mode') in ('surface','recessed','pendant'))
     return dict(version=FIT_VERSION,purpose=purpose,dimension_source=mode,
                 strategy='footprint_reference' if soft else mode,
                 reference_dimensions=reference,resulting_dimensions=list(result),

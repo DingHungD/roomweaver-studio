@@ -18,8 +18,11 @@ def execute(project, operation, parameters):
     if not output.is_relative_to(root/'runs/interior-studio'):
         raise ValueError('無效輸出目錄')
     # Environment failures must precede downloads and model processing.
-    executable=blender_executable()
+    executable=None if operation=='studio.source-site' and parameters.get('upstream') else blender_executable()
     output.mkdir(parents=True, exist_ok=True)
+    if operation=='studio.source-site':
+        from .source_site import execute_source_site
+        return execute_source_site(root,output,parameters,executable)
     if shutil.disk_usage(output).free < 6*1024**3:
         raise ValueError('磁碟可用空間少於 6 GB；尚未開始渲染')
     replacing = operation == 'studio.replace'
@@ -50,7 +53,7 @@ def execute(project, operation, parameters):
         request=dict(mode='prepare',source=str(native),preview=str(preview),source_sha256=actual,
             output=str(output),model_id=parameters['job_id'],asset=dict(asset,path=str(asset_path)),
             design=scene,target_group=parameters['group_id'],target_object=parameters.get('object_id'),target_objects=parameters.get('object_ids'),
-            asset_requirements=parameters.get('asset_requirements'),dimension_fit=parameters.get('dimension_fit','uniform'),repair_scale=parameters.get('repair_scale',1),asset_rotation=parameters['rotation'],auto_fit=parameters.get('auto_fit',False),task_id=parameters['task_id'])
+            fixture_installation=parameters.get('fixture_installation'),asset_requirements=parameters.get('asset_requirements'),dimension_fit=parameters.get('dimension_fit','uniform'),repair_scale=parameters.get('repair_scale',1),asset_rotation=parameters['rotation'],auto_fit=parameters.get('auto_fit',False),task_id=parameters['task_id'])
         source={}
     elif operation == 'studio.prepare':
         source = parameters['source']
@@ -79,6 +82,12 @@ def execute(project, operation, parameters):
         request = dict(mode='prepare', source=str(native), preview=str(preview), source_sha256=actual,
             output=str(output), model_id=parameters['job_id'])
         if source.get('plan'):request['plan']=plan
+        elif native.suffix.lower()=='.skp':
+            from .skp_conversion import convert_skp
+            conversion=convert_skp(native,output/'sketchup')
+            preview=output/'sketchup/model.glb'
+            preview_actual=digest(preview)
+            request.update(source=str(preview),preview=str(preview),sketchup_conversion=conversion)
     else:
         revision = read_json(root/'workflows/interior-studio/revisions'/f"{parameters['revision']}.json")
         scene = revision['scene']
@@ -89,6 +98,19 @@ def execute(project, operation, parameters):
             raise ValueError('工作模型已變動，請重新匯入')
         request = dict(mode='lighting' if operation=='studio.lighting' else 'render', job_id=parameters['job_id'], source=str(native), output=str(output), scene=scene,
             revision=parameters['revision'], quality=parameters['quality'], model_id=scene['model_id'])
+        request['agent_model']=parameters.get('agent_model')
+        if parameters.get('editor_scene'):
+            from .models import Scene
+            from .editor_repair import protected
+            proposed=Scene.model_validate(parameters['editor_scene']).model_dump(mode='json')
+            protected(scene,proposed)
+            # Only viewpoints may differ in a private camera trial.
+            baseline=Scene.model_validate(scene).model_dump(mode='json')
+            if {k:v for k,v in baseline.items() if k!='viewpoints'}!={k:v for k,v in proposed.items() if k!='viewpoints'}:raise ValueError('取景試圖不可變更家具或建築模型')
+            scene=proposed;request['scene']=scene
+            request['realism_point_id']=parameters['editor_point_id']
+        from .opening_details import source_openings
+        request['opening_source']=source_openings(root,model) if (scene.get('opening_details') or parameters.get('realism_point_id')) else None
     def lighting_source(value):
         if not value:return None
         path=(root/value['path']).resolve()
@@ -108,6 +130,14 @@ def execute(project, operation, parameters):
             request['lighting_source']=lighting_source(proposal.get('lighting_source'))
     script = Path(__file__).resolve().parents[2]/'visualization/studio_blender.py'
     def run_blender(payload, folder):
+        if payload.get('scene',{}).get('door_controls'):
+            from .door_assets import resolve as resolve_door_assets
+            payload['door_asset_files']={c['opening_id']:c['_asset_files'] for c in resolve_door_assets(payload['scene'],root)['door_controls']}
+        from .installation_assets import resolve as installation_assets
+        payload['installation_assets']=installation_assets(payload.get('scene',{}),root,digest(native)) if operation=='studio.render' else {}
+        if payload.get('scene',{}).get('shelf_refinements'):
+            from .shelf_assets import resolve
+            payload['realism_assets']=resolve(payload['scene'],root,digest(native),request.get('realism_assets'))
         payload['stop_file']=str(output/'stop-requested.json')
         write_json(folder/'request.json',payload)
         with (folder/'blender.log').open('w',encoding='utf-8') as log:
@@ -120,8 +150,31 @@ def execute(project, operation, parameters):
             except subprocess.TimeoutExpired:
                 process.terminate();process.wait(timeout=15);raise
         return process.returncode
+    # Local operator-owned registry; Agent output cannot supply file paths.
+    registry=os.environ.get('ROOMWEAVER_REALISM_ASSETS')
+    if registry and operation=='studio.render':
+        request['realism_assets']=read_json(Path(registry))
     write_json(output/'request.json',request)
-    if operation=='studio.render' and scene.get('lighting_setup',{}).get('enabled'):
+    if operation=='studio.render' and parameters.get('realism_point_id'):
+        from .realism import optimize as refine
+        request['realism_point_id']=parameters['realism_point_id']
+        request['realism_brief']=parameters.get('realism_brief','')
+        request['prepare_only']=parameters.get('prepare_only',False)
+        request['realism_all']=parameters.get('realism_all',False)
+        request['prepare_openings']=parameters.get('prepare_openings',False)
+        write_json(output/'request.json',request)
+        result=refine(request,output,run_blender)
+        write_json(output/'result.json',result)
+        return result
+    if operation=='studio.render' and parameters.get('scene_review'):
+        request['scene_repair_enabled']=True
+        from .scene_review import optimize as review_scene
+        preview=review_scene(request,output,run_blender)
+        if request['quality']=='preview' or preview['scene_review_status']!='passed':
+            write_json(output/'result.json',preview)
+            return preview
+        if (output/'stop-requested.json').exists():raise ValueError('已停止後續正式出圖')
+    elif operation=='studio.render' and scene.get('lighting_setup',{}).get('enabled') and not parameters.get('editor_scene'):
         from .lighting import optimize
         optimize(request,output,run_blender)
         if (output/'stop-requested.json').exists():raise ValueError('已停止後續出圖')
@@ -144,6 +197,9 @@ def execute(project, operation, parameters):
             model['replacement']=dict(source_revision=parameters['revision'],group_id=parameters['group_id'],asset_id=asset.get('asset_id'),restore_revision=parameters.get('restore_revision'))
         model['native_sha256'] = digest(output/'model.blend')
         model['preview_sha256'] = digest(output/'model.glb')
+        if source.get('format')=='skp':
+            model['source_conversion']=dict(format='skp',record='sketchup/conversion.json',
+                                           original_sha256=actual,units='m')
         write_json(output/'model.json', model)
         from .handoff import validate_package
         handoff=validate_package(output,persist=True)
@@ -156,6 +212,9 @@ def execute(project, operation, parameters):
         return dict(model_id=parameters['job_id'], object_count=len(model['objects']), source_preserved=True,handoff=handoff,
             replacement=replacing)
     result=read_json(output/'result.json')
+    if parameters.get('scene_review'):
+        result.update(scene_review_status='passed',visual_review='draft_passed_final_needs_review')
+        write_json(output/'result.json',result)
     if operation=='studio.lighting':
         from .models import LightingSetup
         result['lighting_setup']=LightingSetup.model_validate(result['lighting_setup']).model_dump(mode='json')

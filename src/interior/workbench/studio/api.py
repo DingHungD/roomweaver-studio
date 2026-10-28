@@ -2,7 +2,7 @@
 import copy
 from pathlib import Path
 from typing import Literal
-from fastapi import UploadFile, File
+from fastapi import UploadFile, File, Query
 from fastapi.responses import FileResponse
 from pydantic import Field
 from ..storage import Conflict, read_json, write_json
@@ -18,6 +18,20 @@ class AdoptImport(Strict):
     job_id: str
     base_revision: str | None = None
 
+class OpenExample(Strict):
+    route: Literal['image','dxf','glb']
+    operation_id: str = Field(pattern=r'^[a-f0-9]{32}$')
+    project_id: str | None = None
+
+class NewLibraryProject(Strict):
+    folder_token: str = Field(pattern=r'^[a-f0-9]{32}$')
+    name: str = Field(min_length=1,max_length=120)
+    operation_id: str = Field(pattern=r'^[a-f0-9]{32}$')
+
+class ProjectView(Strict):
+    revision: str = Field(pattern=r'^[a-f0-9]{32}$')
+    step: Literal[1,2,3,4,5,6]
+
 class AgentInput(Strict):
     kind: Literal['connection','vision','tool','browser']
     model: str | None = None
@@ -31,6 +45,17 @@ class CandidateInput(Strict):
 class DesignConfirmation(Strict):
     phase: Literal['spaces','materials','viewpoints']
     base_revision: str
+
+class SceneReviewAdoption(Strict):
+    base_revision: str = Field(pattern=r'^[a-f0-9]{32}$')
+
+class PrepareDetails(SceneReviewAdoption):
+    realism_all: bool = False
+    prepare_openings: bool = False
+    operation_id: str = Field(pattern=r'^[a-zA-Z0-9_-]{8,100}$')
+    point_id: str
+    brief: str = Field(default='',max_length=12000)
+    model: str | None = None
 
 class OutputCleanup(Strict):
     base_revision: str = Field(pattern=r'^[a-f0-9]{32}$')
@@ -47,12 +72,99 @@ def install(app, store, jobs):
     app.state.studio=studio
     app.state.studio_coordinator=coordinator
     app.state.studio_agents=agents
+    from .fixture_lighting import FixtureLighting, FixtureLightingRequest, FixtureLightingApply
+    fixture_lighting=FixtureLighting(studio,agents)
+    from .source_site import SourceSites, SourceSiteRequest
+    source_sites=SourceSites(studio)
+
+    @app.get('/api/studio/projects/{project_id}/source-site')
+    def source_site_current(project_id:str):
+        return source_sites.current(project_id)
+
+    @app.post('/api/studio/projects/{project_id}/source-site')
+    def source_site_start(project_id:str,body:SourceSiteRequest):
+        return source_sites.start(project_id,body)
+
+    @app.get('/api/studio/projects/{project_id}/source-site/{job_id}/files/{name:path}')
+    def source_site_file(project_id:str,job_id:str,name:str):
+        path=source_sites.artifact(project_id,job_id,name)
+        return FileResponse(path,headers={'Cache-Control':'no-cache','X-Content-Type-Options':'nosniff'},
+                            filename='website.zip' if path.suffix=='.zip' else None)
+
+    @app.post('/api/studio/projects/{project_id}/fixture-lighting')
+    def fixture_lighting_start(project_id:str,body:FixtureLightingRequest):
+        return fixture_lighting.start(project_id,body)
+
+    @app.get('/api/studio/projects/{project_id}/fixture-lighting/current')
+    def fixture_lighting_current(project_id:str):
+        return fixture_lighting.current(project_id)
+
+    @app.get('/api/studio/projects/{project_id}/fixture-lighting/{identifier}')
+    def fixture_lighting_get(project_id:str,identifier:str):
+        return fixture_lighting.get(project_id,identifier)
+
+    @app.get('/api/studio/projects/{project_id}/fixture-lighting/{identifier}/images/{candidate}/{view}')
+    def fixture_lighting_image(project_id:str,identifier:str,candidate:int,view:Literal['object','reverse','bottom']):
+        if candidate<0 or candidate>10000:raise ValueError('燈具圖像識別碼無效')
+        request=fixture_lighting.request(project_id,identifier)
+        path=Path(request['output'])/f'fixture-{candidate}'/f'model-{view}.png'
+        if not path.is_file():raise FileNotFoundError('燈具圖像尚未產生')
+        return FileResponse(path)
+
+    @app.post('/api/studio/projects/{project_id}/fixture-lighting/{identifier}/apply')
+    def fixture_lighting_apply(project_id:str,identifier:str,body:FixtureLightingApply):
+        return fixture_lighting.apply(project_id,identifier,body.base_revision)
     jobs.close_callbacks.extend([agents.close,coordinator.close])
-    from .plan_import import PlanIntake, SavePlan, BuildPlan, RectifyPlan
+    from .plan_import import PlanIntake, SavePlan, BuildPlan, RectifyPlan, PrepareCAD
     plans=PlanIntake(studio)
+    from .plan_semantics import PlanSemantics, SemanticRequest, AdoptSemantics, SaveSemanticAnswers
+    semantics=PlanSemantics(studio,agents)
+    from .semantic_corrections import SaveCorrections,get_drafts,save_drafts
+    app.state.plan_semantics=semantics
+    from .experience_review import ExperienceReview, CreateExperience, ExperienceAnswer, ExperienceFields, DeactivateExperience
+    experiences=ExperienceReview(semantics)
+    from .experience_batch import ExperienceBatches, BatchExperienceRequest
+    experience_batches=ExperienceBatches(experiences)
+    app.state.cad_experiences=experiences
     from .image_evidence import EvidenceRefinement, FeedbackInput
     from .image_plan import ImageIntake, RecognizeImage
     images=ImageIntake(studio,agents)
+    from .intake import IntakeSessions,LIMITS
+    intake=IntakeSessions(studio,images,plans)
+    from .project_library import ProjectLibrary
+    library=ProjectLibrary(studio,intake)
+    app.state.project_library=library
+
+    @app.get('/api/studio/project-library')
+    def project_cards():return library.cards()
+
+    @app.post('/api/studio/project-library/folders/pick')
+    def pick_project_folder():return library.pick()
+
+    @app.post('/api/studio/project-library')
+    def create_library_project(body:NewLibraryProject):return library.create(body.folder_token,body.name,body.operation_id)
+
+    @app.get('/api/studio/project-library/{identifier}/resume')
+    def resume_library_project(identifier:str):return library.resume(identifier)
+
+    @app.put('/api/studio/project-library/{identifier}/view')
+    def save_project_view(identifier:str,body:ProjectView):
+        library.save_view(identifier,body.revision,body.step)
+        return dict(saved=True)
+
+    @app.get('/api/studio/intake')
+    def intake_status():return intake.current()
+
+    @app.post('/api/studio/intake/upload')
+    async def intake_upload(route:Literal['image','dxf','glb'],operation_id:str,file:UploadFile=File(...),project_id:str|None=None):
+        try:
+            content=await file.read(LIMITS[route]+1)
+            from starlette.concurrency import run_in_threadpool
+            return await run_in_threadpool(intake.open,route,file.filename or '',content,operation_id,False,project_id)
+        finally:await file.close()
+
+    @app.post('/api/studio/intake/examples')
+    def intake_example(body:OpenExample):return intake.open(body.route,'',b'',body.operation_id,True,body.project_id)
     from .layout_design import LayoutDesign, LayoutRequest, AdoptLayout, LayoutBrief, ReviseLayout, LayoutAnswers
     layouts=LayoutDesign(studio,agents)
     from .asset_matching import AssetMatching, MatchRequest, SelectAsset, LinkAsset
@@ -61,6 +173,17 @@ def install(app, store, jobs):
     selected_repairs=SelectedRepair(assets)
     from .asset_batch import AssetBatch, BatchRequest, inventory
     batches=AssetBatch(assets)
+    from .editor_repair import EditorRepairs, EditorRepairRequest
+    editor_repairs=EditorRepairs(studio,agents,batches)
+
+    @app.get('/api/studio/projects/{project_id}/editor-repairs')
+    def repair_records(project_id:str):return editor_repairs.records(project_id)
+
+    @app.get('/api/studio/projects/{project_id}/editor-repairs/{identifier}')
+    def repair_state(project_id:str,identifier:str):return editor_repairs.get(project_id,identifier)
+
+    @app.post('/api/studio/projects/{project_id}/editor-repairs')
+    def repair_item(project_id:str,body:EditorRepairRequest):return editor_repairs.start(project_id,body)
     from .staging import Staging, StageRequest, StageApply, StageRetry
     staging=Staging(studio,batches)
 
@@ -300,15 +423,130 @@ def install(app, store, jobs):
     @app.post('/api/studio/projects/{project_id}/plans/upload')
     async def upload_plan(project_id:str,file:UploadFile=File(...)):
         try:
-            if Path(file.filename or '').suffix.lower()!='.dxf':raise ValueError('此入口支援 ASCII DXF；PNG／JPG 請使用圖片入口，DWG／SKP 尚未開放')
+            if Path(file.filename or '').suffix.lower() not in ('.dxf','.dwg'):raise ValueError('此入口支援 DXF／DWG 平面圖；PNG／JPG 請使用圖片入口，SKP 尚未開放')
             content=await file.read(10_000_001)
-            if len(content)>10_000_000:raise ValueError('DXF 超過 10 MB 上限')
+            if len(content)>10_000_000:raise ValueError('電子平面超過 10 MB 上限')
             from starlette.concurrency import run_in_threadpool
             return await run_in_threadpool(plans.create,project_id,file.filename,content)
         finally:await file.close()
 
     @app.get('/api/studio/projects/{project_id}/plans/current')
     def current_plan(project_id:str):return plans.current(project_id)
+
+    @app.get('/api/studio/projects/{project_id}/plans/{plan_id}/source-drawing')
+    def cad_source_drawing(project_id:str,plan_id:str):return plans.source_drawing(project_id,plan_id)
+
+    @app.post('/api/studio/projects/{project_id}/plans/{plan_id}/prepare')
+    def prepare_cad_plan(project_id:str,plan_id:str,body:PrepareCAD):return plans.prepare(project_id,plan_id,body)
+
+    @app.post('/api/studio/projects/{project_id}/plans/{plan_id}/semantics')
+    def start_plan_semantics(project_id:str,plan_id:str,body:SemanticRequest):return semantics.start(project_id,plan_id,body)
+
+    @app.get('/api/studio/projects/{project_id}/plans/{plan_id}/semantics')
+    def current_plan_semantics(project_id:str,plan_id:str):return semantics.get(project_id,plan_id)
+
+    @app.get('/api/studio/projects/{project_id}/plans/{plan_id}/semantics/corrections')
+    def plan_correction_drafts(project_id:str,plan_id:str):return get_drafts(semantics,project_id,plan_id)
+
+    @app.put('/api/studio/projects/{project_id}/plans/{plan_id}/semantics/corrections')
+    def save_plan_correction_drafts(project_id:str,plan_id:str,body:SaveCorrections):return save_drafts(semantics,project_id,plan_id,body)
+
+    @app.get('/api/studio/projects/{project_id}/plans/{plan_id}/semantics/{task_id}')
+    def plan_semantics_task(project_id:str,plan_id:str,task_id:str):return semantics.get(project_id,plan_id,task_id)
+
+    @app.post('/api/studio/projects/{project_id}/plans/{plan_id}/semantics/{task_id}/reconcile-batch')
+    def reconcile_plan_batch(project_id:str,plan_id:str,task_id:str,body:AdoptSemantics):return semantics.reconcile_batch(project_id,plan_id,task_id,body)
+
+    @app.get('/api/studio/projects/{project_id}/plans/{plan_id}/experience-drafts')
+    def experience_drafts(project_id:str,plan_id:str):
+        result=experiences.list(project_id,plan_id)
+        result['adoptions']=experience_batches.adoptions(project_id,plan_id)
+        return result
+
+    @app.post('/api/studio/projects/{project_id}/plans/{plan_id}/experience-drafts')
+    def create_experience(project_id:str,plan_id:str,body:CreateExperience):return experiences.create(project_id,plan_id,body)
+
+    @app.put('/api/studio/projects/{project_id}/plans/{plan_id}/experience-drafts/{identifier}')
+    def save_experience(project_id:str,plan_id:str,identifier:str,body:ExperienceFields):return experiences.save(project_id,plan_id,identifier,body)
+
+    @app.post('/api/studio/projects/{project_id}/plans/{plan_id}/experience-drafts/{identifier}/confirm')
+    def confirm_experience(project_id:str,plan_id:str,identifier:str,body:ExperienceAnswer):return experiences.confirm(project_id,plan_id,identifier,body)
+
+    @app.get('/api/studio/projects/{project_id}/plans/{plan_id}/experience-drafts/{identifier}/search')
+    def search_experience(project_id:str,plan_id:str,identifier:str):return experiences.search(project_id,plan_id,identifier)
+
+    @app.get('/api/studio/projects/{project_id}/plans/{plan_id}/experience-drafts/{identifier}/image')
+    def experience_image(project_id:str,plan_id:str,identifier:str):
+        experiences.get(project_id,plan_id,identifier)
+        return FileResponse(experiences.folder(project_id,plan_id)/identifier/'source.png',media_type='image/png')
+
+    @app.get('/api/studio/cad-experiences')
+    def experience_catalog(offset:int=0):
+        result=experiences.library.catalog(offset=offset)
+        result['entries']=[{k:v for k,v in e.items() if k not in ('descriptor','examples')}|{'example_count':len(e.get('examples',[])) or 1} for e in result['entries']]
+        return result
+
+    @app.get('/api/studio/projects/{project_id}/plans/{plan_id}/semantics/{task_id}/question-history')
+    def plan_question_history(project_id:str,plan_id:str,task_id:str):
+        from .question_history import question_history
+        return question_history(semantics,project_id,plan_id,task_id)
+
+    @app.post('/api/studio/projects/{project_id}/plans/{plan_id}/experience-batches')
+    def start_experience_batch(project_id:str,plan_id:str,body:BatchExperienceRequest):return experience_batches.start(project_id,plan_id,body)
+
+    @app.get('/api/studio/projects/{project_id}/plans/{plan_id}/experience-batches')
+    def latest_experience_batch(project_id:str,plan_id:str,review_id:str):return experience_batches.latest(project_id,plan_id,review_id)
+
+    @app.get('/api/studio/projects/{project_id}/plans/{plan_id}/experience-batches/{identifier}')
+    def get_experience_batch(project_id:str,plan_id:str,identifier:str):return experience_batches.get(project_id,plan_id,identifier)
+
+    @app.post('/api/studio/projects/{project_id}/plans/{plan_id}/experience-batches/{identifier}/apply')
+    def apply_experience_batch(project_id:str,plan_id:str,identifier:str):return experience_batches.apply(project_id,plan_id,identifier)
+
+    @app.get('/api/studio/cad-experiences/{identifier}/image')
+    def confirmed_experience_image(identifier:str):return FileResponse(experiences.library.image_path(identifier),media_type='image/png')
+
+    @app.post('/api/studio/cad-experiences/{identifier}/deactivate')
+    def deactivate_experience(identifier:str,body:DeactivateExperience):return experiences.library.deactivate(identifier,body.revision)
+
+    @app.get('/api/studio/projects/{project_id}/plans/{plan_id}/semantics/{task_id}/source')
+    def plan_semantics_source(project_id:str,plan_id:str,task_id:str):
+        semantics.get(project_id,plan_id,task_id)
+        return FileResponse(semantics.folder(project_id,plan_id)/'runs'/task_id/'source.png',media_type='image/png')
+
+    @app.get('/api/studio/projects/{project_id}/plans/{plan_id}/semantics/{task_id}/annotations')
+    def plan_semantics_annotations(project_id:str,plan_id:str,task_id:str):
+        semantics.get(project_id,plan_id,task_id)
+        return FileResponse(semantics.folder(project_id,plan_id)/'runs'/task_id/'questions.svg',media_type='image/svg+xml')
+
+    @app.put('/api/studio/projects/{project_id}/plans/{plan_id}/semantics/{task_id}/answers')
+    def plan_semantics_answers(project_id:str,plan_id:str,task_id:str,body:SaveSemanticAnswers):return semantics.save_answers(project_id,plan_id,task_id,body)
+
+    @app.post('/api/studio/projects/{project_id}/plans/{plan_id}/semantics/{task_id}/adopt')
+    def adopt_plan_semantics(project_id:str,plan_id:str,task_id:str,body:AdoptSemantics):return semantics.adopt(project_id,plan_id,task_id,body)
+
+    @app.post('/api/studio/projects/{project_id}/plans/{plan_id}/semantics/{task_id}/preview-3d')
+    def preview_plan_semantics(project_id:str,plan_id:str,task_id:str,body:AdoptSemantics):
+        from .plan_handoff import preview
+        return preview(semantics,project_id,plan_id,task_id,body)
+
+    @app.get('/api/studio/projects/{project_id}/plans/{plan_id}/semantics/{task_id}/preview-3d')
+    def get_plan_preview(project_id:str,plan_id:str,task_id:str):
+        semantics.get(project_id,plan_id,task_id)
+        path=semantics.folder(project_id,plan_id)/'runs'/task_id/'preview-job.json'
+        if not path.exists():return None
+        job=jobs.get(read_json(path)['job_id'])
+        scene=None
+        if job['status']=='completed':
+            from .plan_handoff import model_scene
+            scene=model_scene(studio,project_id,job['id'])
+        return dict(job=job,scene=scene,preview_only=True)
+
+    @app.post('/api/studio/projects/{project_id}/plans/{plan_id}/semantics/{task_id}/stop')
+    def stop_plan_semantics(project_id:str,plan_id:str,task_id:str):
+        semantics.get(project_id,plan_id,task_id)
+        agents.stop(task_id)
+        return semantics.get(project_id,plan_id,task_id)
 
     @app.put('/api/studio/projects/{project_id}/plans/{plan_id}')
     def save_plan(project_id:str,plan_id:str,body:SavePlan):return plans.save(project_id,plan_id,body)
@@ -343,6 +581,82 @@ def install(app, store, jobs):
     def model(project_id:str,model_id:str):
         return studio.model(project_id,model_id)
 
+    @app.get('/api/studio/projects/{project_id}/models/{model_id}/doors')
+    def doors(project_id:str,model_id:str):
+        from .opening_details import source_openings
+        source=source_openings(studio.root(project_id),studio.model(project_id,model_id))
+        return dict(items=[i for i in source['items'] if i['role']=='door'],reason=source.get('reason'))
+
+    from .door_assets import DoorAssets, DoorMatch, DoorSelection
+    door_assets=DoorAssets(studio,agents)
+    @app.post('/api/studio/projects/{project_id}/door-assets')
+    def match_door_asset(project_id:str,body:DoorMatch):return door_assets.start(project_id,body)
+    @app.get('/api/studio/projects/{project_id}/door-assets/current')
+    def current_door_asset(project_id:str,opening:str,part:str):return door_assets.current(project_id,opening,part)
+    @app.get('/api/studio/projects/{project_id}/door-assets/{key}')
+    def door_asset_status(project_id:str,key:str):return door_assets.get(project_id,key)
+    @app.post('/api/studio/projects/{project_id}/door-assets/{key}/select')
+    def select_door_asset(project_id:str,key:str,body:DoorSelection):return door_assets.select(project_id,key,body)
+    @app.get('/api/studio/projects/{project_id}/door-assets/{key}/selection')
+    def door_asset_selection(project_id:str,key:str):return door_assets.status(project_id,key)
+    @app.get('/api/studio/projects/{project_id}/door-assets/{key}/preview')
+    def preview_door_asset(project_id:str,key:str):
+        if door_assets.status(project_id,key)['status']!='completed':raise ValueError('門素材尚未完成檢查')
+        return read_json(door_assets.path(project_id,key)/'proposal.json')
+    @app.post('/api/studio/projects/{project_id}/door-assets/{key}/adopt')
+    def adopt_door_asset(project_id:str,key:str,body:SceneReviewAdoption):return door_assets.adopt(project_id,key,body.base_revision)
+    @app.get('/api/studio/projects/{project_id}/doors/previews/{key}')
+    def door_asset_preview(project_id:str,key:str):
+        import re
+        if not re.fullmatch('[a-f0-9]{64}',key):raise ValueError('無效門預覽')
+        return FileResponse(studio.root(project_id)/'runs/interior-studio/door-poses'/key/'doors.glb',media_type='model/gltf-binary')
+
+    from .door_design import DoorDesignRequest
+
+    @app.post('/api/studio/projects/{project_id}/doors/poses')
+    def door_poses(project_id:str,body:DoorDesignRequest):
+        from .opening_details import source_openings
+        from .door_collision import check_poses
+        model=studio.model(project_id,body.scene.model_id)
+        source=source_openings(studio.root(project_id),model)
+        return check_poses(studio.root(project_id),model,body.scene.model_dump(mode='json'),source)
+
+    @app.post('/api/studio/projects/{project_id}/doors/width-preview')
+    def width_preview(project_id:str,body:DoorDesignRequest):
+        from .opening_details import source_openings
+        from .door_collision import width_candidates
+        model=studio.model(project_id,body.scene.model_id)
+        source=source_openings(studio.root(project_id),model)
+        controls=[c.model_dump(mode='json') for c in body.scene.door_controls]
+        fits=width_candidates(dict(collision_context=dict(blend=str(studio.root(project_id)/'runs/interior-studio'/body.scene.model_id/'model.blend'),sha256=model['native_sha256'],scene=body.scene.model_dump(mode='json')),openings=[i for i in source['items'] if i['role']=='door']+[d.model_dump(mode='json') for d in body.scene.manual_doors],controls=controls))
+        for c in controls:
+            fit=fits.get(c['opening_id'])
+            if fit and not fit.get('no_fit'):c['assembly_width']=fit['recommended_width']
+        return dict(controls=controls,width_candidates=fits,review_status='agent_pending')
+
+    @app.get('/api/studio/projects/{project_id}/editor-issues')
+    def read_editor_issues(project_id:str,revision:str):
+        from .editor_issues import editor_issues
+        return editor_issues(studio,agents,project_id,revision)
+
+    @app.post('/api/studio/projects/{project_id}/doors/design')
+    def design_doors(project_id:str,body:DoorDesignRequest):
+        from .opening_details import source_openings
+        model=studio.model(project_id,body.scene.model_id)
+        source=source_openings(studio.root(project_id),model)
+        openings=[i for i in source['items'] if i['role']=='door']
+        openings.extend(d.model_dump(mode='json') for d in body.scene.manual_doors)
+        deleted={c.opening_id for c in body.scene.door_controls if c.deleted}
+        openings=[o for o in openings if o['id'] not in deleted]
+        if not openings:raise ValueError('找不到可追溯門洞；請先以兩點標示門的位置')
+        task=agents.start('door_design',model='gpt-6-sol',payload=dict(collision_context=dict(blend=str(studio.root(project_id)/'runs/interior-studio'/body.scene.model_id/'model.blend'),sha256=model['native_sha256'],scene=body.scene.model_dump(mode='json')),openings=openings,plan=source.get('plan_items',[]),
+            controls=[d.model_dump() for d in body.scene.door_controls],rooms=[r.model_dump() for r in body.scene.rooms],
+            objects=[dict(name=g.name,translation=g.translation,spec=g.object_specification.model_dump() if g.object_specification else None) for g in body.scene.groups if not g.deleted]))
+
+        from .editor_issues import remember_door_task
+        remember_door_task(studio,project_id,task,body.scene.model_dump(mode='json'))
+        return task
+
     @app.post('/api/studio/projects/{project_id}/import')
     def import_existing(project_id:str,body:ImportInput):
         return studio.import_existing(project_id,body.operation_id)
@@ -367,20 +681,15 @@ def install(app, store, jobs):
     @app.post('/api/studio/projects/{project_id}/import/upload')
     async def upload(project_id:str,file:UploadFile=File(...)):
         name=file.filename or 'model.glb'
-        if Path(name).suffix.lower()!='.glb':
+        if Path(name).suffix.lower() not in ('.glb','.skp'):
             await file.close()
-            raise ValueError('此入口只接受 GLB；DXF 請使用電子平面入口，PNG／JPG 請使用圖片入口。DWG／SKP 尚未開放。')
-        content=await file.read(85_000_001)
+            raise ValueError('此入口接受 GLB／SKP；DWG／DXF 請使用電子平面入口，PNG／JPG 請使用圖片入口。')
+        limit=512_000_000
+        content=await file.read(limit+1)
         await file.close()
-        if len(content)>85_000_000 or content[:4]!=b'glTF':
-            raise ValueError('GLB 無效或超過 85 MB')
-        item=store.upload(project_id,name,content)
+        if len(content)>limit:raise ValueError('3D 模型超過 512 MB 大小上限')
         from uuid import uuid4
-        source=dict(native=item['path'],preview=item['path'],rooms=[dict(id='unassigned',name='待確認空間')],viewpoints=[],links=[])
-        folder=studio.folder(project_id)
-        write_json(folder/'sources'/f'{uuid4().hex}.json',source)
-        write_json(folder/'source.json',source)
-        return studio.import_existing(project_id,uuid4().hex)
+        return studio.upload_glb(project_id,name,content,uuid4().hex)
 
     @app.get('/api/studio/projects/{project_id}/outputs')
     def outputs(project_id:str,include_deleted:bool=False):
@@ -416,6 +725,55 @@ def install(app, store, jobs):
             attempts.append(dict(name=folder.name,images=images,status=checks.get('status'),review=review))
         return dict(revision=job['source_revision'],attempts=attempts,lighting_setup=(job.get('result') or {}).get('lighting_setup'))
 
+    @app.get('/api/studio/jobs/{job_id}/scene-review')
+    def scene_review(job_id:str):
+        job=jobs.get(job_id)
+        if job['operation']!='studio.render':raise ValueError('非渲染工作')
+        path=studio.root(job['project_id'])/job['output']/'scene-review.json'
+        return read_json(path) if path.exists() else dict(status='pending',attempts=[],revision=job['source_revision'])
+
+    @app.get('/api/studio/jobs/{job_id}/realism-review')
+    def realism_review(job_id:str):
+        job=jobs.get(job_id)
+        if job['operation']!='studio.render':raise ValueError('非渲染工作')
+        path=studio.root(job['project_id'])/job['output']/'realism-review.json'
+        return read_json(path) if path.exists() else dict(status='pending',attempts=[])
+
+    @app.post('/api/studio/projects/{project_id}/realism-prepare')
+    def prepare_details(project_id:str,body:PrepareDetails):
+        with studio.store.lock:
+            current=studio.current(project_id)
+            if current['revision']!=body.base_revision:raise Conflict('請先保存目前編輯，再準備預覽')
+            if not any(p['id']==body.point_id for p in current['scene']['viewpoints']):raise ValueError('請選擇已有觀看點作預覽範圍')
+            return jobs.submit_studio(project_id,'render',dict(revision=body.base_revision,quality='preview',realism_point_id=body.point_id,realism_brief=body.brief,agent_model=body.model,prepare_only=True,realism_all=body.realism_all,prepare_openings=body.prepare_openings),body.operation_id)
+
+    @app.get('/api/studio/projects/{project_id}/realism-prepare')
+    def current_preparation(project_id:str):
+        revision=studio.current(project_id)['revision']
+        for job in jobs.list(project_id):
+            if job['operation']!='studio.render' or job['source_revision']!=revision:continue
+            path=store.state_dir/'jobs'/job['id']/'request.json'
+            if path.exists():
+                params=read_json(path)['parameters']
+                if params.get('prepare_only'):return dict(job,preparation_context=dict(brief=params.get('realism_brief','')))
+
+        return None
+
+    @app.post('/api/studio/projects/{project_id}/realism-review/{job_id}/adopt')
+    def adopt_realism(project_id:str,job_id:str,body:SceneReviewAdoption):
+        from .realism import adopt
+        return adopt(studio,project_id,job_id,body.base_revision)
+
+    @app.get('/api/studio/projects/{project_id}/realism-review/{job_id}/preview')
+    def realism_model_preview(project_id:str,job_id:str):
+        from .realism import model_preview
+        return model_preview(studio,project_id,job_id)
+
+    @app.post('/api/studio/projects/{project_id}/scene-review/{job_id}/adopt')
+    def adopt_scene_review(project_id:str,job_id:str,body:SceneReviewAdoption):
+        from .scene_review import adopt
+        return adopt(studio,project_id,job_id,body.base_revision)
+
     @app.get('/api/studio/jobs/{job_id}')
     def job(job_id:str):
         result=jobs.get(job_id)
@@ -446,7 +804,7 @@ def install(app, store, jobs):
 
     @app.post('/api/studio/projects/{project_id}/workflows')
     def start(project_id:str,body:StartWorkflow):
-        return coordinator.start(project_id,body.base_revision,body.operation_id,body.quality)
+        return coordinator.start(project_id,body.base_revision,body.operation_id,body.quality,body.scene_review,body.agent_model,body.realism_point_id,body.realism_brief,body.realism_all,body.prepare_openings)
 
     @app.get('/api/studio/workflows/{run_id}')
     def workflow(run_id:str):
@@ -467,6 +825,10 @@ def install(app, store, jobs):
     @app.post('/api/studio/agent/tests')
     def agent_test(body:AgentInput):
         return agents.start(body.kind,body.model)
+
+    @app.get('/api/studio/agent/tasks')
+    def agent_worklist(history_limit:int=Query(default=20,ge=1,le=200),history_offset:int=Query(default=0,ge=0)):
+        return agents.list(history_limit,history_offset)
 
     @app.get('/api/studio/agent/tasks/{task_id}')
     def agent_task(task_id:str):

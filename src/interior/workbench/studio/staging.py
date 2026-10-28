@@ -37,6 +37,27 @@ class StageRetry(Strict):
     operation_id: str = Field(pattern=r'^[a-zA-Z0-9_-]{8,100}$')
 
 
+def restore_decor_identity(scene, proposal, previous):
+    """Recover legacy automatic identities only from the adopted proposal evidence.
+
+    Explicit user requirements and confirmed dimensions are never overwritten.
+    Returns incorrectly installed groups that also need replacement.
+    """
+    retry=set(); tasks={i.get('task_id') for i in previous.get('items',[])}
+    groups={g['id']:g for g in scene['groups'] if not g['deleted']}
+    for item in proposal.get('items',[]):
+        g=groups.get(item['id']); purpose=item['furniture']['asset']
+        if not g or purpose not in ('vase','books','tableware','cookware','soap','plant','rug'):continue
+        g['decor_context']=dict(purpose=purpose,support_group_id=item['support_id'],proposal_id=proposal['id'])
+        req=g.get('asset_requirements') or {};spec=g.get('object_specification') or {}
+        ref=g.get('generated_reference') or g.get('asset_reference') or {}
+        # A generated/downloaded automatic requirement has no independent user evidence.
+        if ref.get('task_id') in tasks and req.get('purpose') not in (None,'',purpose):
+            if not req.get('evidence') and req.get('dimension_source') in ('unknown','estimated') and not spec.get('purpose'):
+                req['purpose']=purpose;retry.add(g['id'])
+    return retry
+
+
 def geometry_scene(scene):
     """Use actual wall/floor pieces for supports/collisions, not a house-sized box.
 
@@ -118,6 +139,7 @@ def propose(scene, bounds, body):
         recipes=[(r'cooker|cooktop|爐具|爐台','cookware'),(r'sink|水槽','tableware'),(r'basin|洗手','soap'),(r'desk|書桌','books'),(r'dining|\btable\b|餐桌','vase'),(r'coffee|茶几','books'),(r'bedside|床頭','vase')]
         for gid,g in list(groups.items()):
             if gid not in room_for or not selected(gid) or gid not in bounds:continue
+            if g.get('editor_kind')=='decor' or g.get('decor_context'):continue
             if re.search(r'chair|椅',g['name'],re.I):continue
             asset=next((a for pattern,a in recipes if re.search(pattern,g['name'],re.I)),None)
             if not asset:continue
@@ -145,9 +167,14 @@ class Staging:
             adopted=read_json(path);previous=self.batches.get(project,adopted['batch_id'])
             current=self.studio.current(project)
             if previous['status'] in ('queued','running','matching','applying','stopping'):raise Conflict('目前配置仍在進行中')
+            if current['revision']!=body.base_revision:raise Conflict('請先保存最新設計')
             failed={i['group_id'] for i in previous['items'] if i.get('placement',{}).get('status')!='installed'}
+            scene=copy.deepcopy(current['scene'])
+            failed.update(restore_decor_identity(scene,proposal,previous))
+            if scene!=current['scene']:
+                current=self.studio.save(project,Scene.model_validate(scene).model_dump(mode='json'),body.base_revision)
             settings=copy.deepcopy(previous['settings'])
-            settings.update(base_revision=body.base_revision,operation_id=body.operation_id)
+            settings.update(base_revision=current['revision'],operation_id=body.operation_id)
             for g in current['scene']['groups']:
                 if not g['deleted']:settings.setdefault('overrides',{}).setdefault(g['id'],{})['enabled']=g['id'] in failed
             batch=self.batches.start(project,BatchRequest.model_validate(settings))
@@ -175,6 +202,13 @@ class Staging:
         path=self.folder(project)/(kind+'-current.json')
         if not path.exists():return None
         result=self.get(project,read_json(path)['id'])
+        # A no-op preview must not hide the last adopted batch or its retry control.
+        if not result.get('items'):
+            known={g['id'] for g in self.studio.current(project)['scene']['groups'] if not g['deleted']}
+            for history in sorted(self.folder(project).glob('*/adoption.json'),key=lambda p:p.stat().st_mtime,reverse=True):
+                prior=self.get(project,history.parent.name)
+                if prior.get('kind')==kind and any(i['id'] in known for i in prior.get('items',[])):
+                    result=prior;break
         adoption=self.folder(project)/result['id']/'adoption.json'
         if adoption.exists():
             record=read_json(adoption);result['adoption']=record
@@ -197,6 +231,8 @@ class Staging:
                     if item['id'] not in body.selected_ids:continue
                     f=item['furniture'];scene.setdefault('concept_furniture',[]).append(f)
                     scene['groups'].append(dict(id=f['id'],name=f['name'],children=[p['id'] for p in f['parts']],translation=item['position'],rotation=0,deleted=False,method='concept',editor_kind='decor' if proposal['kind']=='decor' else 'furniture'))
+                    if proposal['kind']=='decor':
+                        scene['groups'][-1]['decor_context']=dict(purpose=f['asset'],support_group_id=item['support_id'],proposal_id=identifier)
                     scene['objects'] += [dict(id=p['id'],name=f['name']+' / '+p['name'],room_id=item['room_id'],material={}) for p in f['parts']]
                 if proposal['kind']=='lighting':
                     setup=scene.setdefault('lighting_setup',{})

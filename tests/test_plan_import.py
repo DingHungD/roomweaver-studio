@@ -49,6 +49,22 @@ def test_nonzero_elevation_and_nonconvex_are_blocked(tmp_path):
     assert parsed['issues'] and any('凸多邊形' in s for s in check['errors'])
 
 
+def test_entities_without_thickness_schema_are_review_issues_not_crashes(tmp_path):
+    doc=ezdxf.readfile(EXAMPLE);m=doc.modelspace()
+    hatch=m.add_hatch();hatch.paths.add_polyline_path([(0,0),(1,0),(1,1),(0,1)],is_closed=True)
+    m.add_solid([(0,0),(1,0),(0,1),(1,1)])
+    m.add_attdef('NOTE',(1,1),text='Review annotation')
+    doc.blocks.new('fixture').add_line((0,0),(1,1));m.add_blockref('fixture',(0,0))
+    # Supported LINE thickness must still be checked rather than ignored.
+    m.add_line((0,0),(1,0),dxfattribs={'thickness':.2})
+    path=tmp_path/'mixed-types.dxf';doc.saveas(path)
+    parsed=parse_dxf(path)
+    assert {'HATCH','SOLID','ATTDEF','INSERT','LINE'} <= {i['kind'] for i in parsed['issues']}
+    assert any(i['kind']=='LINE' and 'XY 平面' in i['reason'] for i in parsed['issues'])
+    assert len(parsed['features'])==len(parse_dxf(EXAMPLE)['features'])
+    assert check_plan(parsed,suggested_settings(parsed))['status']=='blocked'
+
+
 def test_rotated_centimetre_fixture(tmp_path):
     doc=ezdxf.readfile(EXAMPLE)
     from ezdxf.math import Matrix44

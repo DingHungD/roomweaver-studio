@@ -67,6 +67,11 @@ class Studio:
         model = self.model(project_id, scene['model_id'])
         if (self.root(project_id)/'runs/interior-studio'/scene['model_id']/'model-retired.json').exists():
             raise Conflict('此舊模型已釋放儲存空間，只保留來源紀錄；請使用目前版本或重新下載素材')
+        if scene.get('door_controls'):
+            from .opening_details import source_openings
+            valid={i['id'] for i in source_openings(self.root(project_id),model)['items'] if i['role']=='door'}
+            valid.update(d['id'] for d in scene['manual_doors'])
+            if any(d['opening_id'] not in valid for d in scene['door_controls']):raise ValueError('門的控制必須對應已確認的門洞')
         if not scene['groups']:
             scene['groups']=self.groups(project_id,scene['model_id'])
         extra={p['id'] for f in scene['concept_furniture'] for p in f['parts']}
@@ -89,6 +94,27 @@ class Studio:
     def import_existing(self, project_id, operation_id):
         source = self.configured_source(project_id)
         return self.jobs.submit_studio(project_id, 'prepare', {'source': source}, operation_id)
+
+    def upload_glb(self, project_id, name, content, operation_id):
+        if Path(name).suffix.lower()=='.skp':
+            from ...visualization.sketchup import SKP_LIMIT,valid_header
+            if not content or len(content)>SKP_LIMIT or not valid_header(content[:128]):
+                raise ValueError('請選擇有效的 SKP，大小不超過 512 MB')
+            item=self.store.upload(project_id,name,content)
+            source=dict(native=item['path'],preview=item['path'],sha256=digest(self.root(project_id)/item['path']),
+                        format='skp',rooms=[dict(id='unassigned',name='待確認空間')],viewpoints=[],links=[])
+            folder=self.folder(project_id)
+            write_json(folder/'sources'/f'{uuid4().hex}.json',source)
+            write_json(folder/'source.json',source)
+            return self.import_existing(project_id,operation_id)
+        if Path(name).suffix.lower()!='.glb' or len(content)>512_000_000 or content[:4]!=b'glTF':
+            raise ValueError('請選擇有效的 GLB，大小不超過 512 MB')
+        item=self.store.upload(project_id,name,content)
+        source=dict(native=item['path'],preview=item['path'],rooms=[dict(id='unassigned',name='待確認空間')],viewpoints=[],links=[])
+        folder=self.folder(project_id)
+        write_json(folder/'sources'/f'{uuid4().hex}.json',source)
+        write_json(folder/'source.json',source)
+        return self.import_existing(project_id,operation_id)
 
     def regroup(self, project_id, base_revision):
         from .grouping import regroup_structure
@@ -116,9 +142,11 @@ class Studio:
         if job['project_id'] != project_id or job['operation'] != 'studio.prepare' or job['status'] != 'completed':
             raise ValueError('模型尚未準備完成')
         current = self.current(project_id)
-        if current['scene'] and current['scene']['model_id'] == job['id']:
-            return current
         source = read_json(self.store.state_dir/'jobs'/job_id/'request.json')['parameters']['source']
+        if source.get('preview_only'):raise ValueError('這是未採用平面的概念預覽；請回01明確採用及確認後再建立正式模型')
+        if current['scene'] and current['scene']['model_id'] == job['id']:
+            self.remember_import(project_id,job_id,source)
+            return current
         model = self.model(project_id, job['id'])
         from .handoff import validate_package
         validate_package(self.root(project_id)/job['output'])
@@ -126,10 +154,27 @@ class Studio:
         if source.get('plan'):
             packet=read_json(self.root(project_id)/source['plan'])
             notes=(packet['settings'].get('layout_adoption') or {}).get('remaining_issues',[])
-        return self.save(project_id, dict(model_id=job['id'], rooms=source['rooms'],
+        if source.get('plan') and (read_json(self.root(project_id)/source['plan'])['parsed'].get('intake_semantics') or {}).get('handoff'):
+            from .plan_handoff import model_scene
+            result=self.save(project_id,model_scene(self,project_id,job_id),base_revision)
+            self.remember_import(project_id,job_id,source)
+            return result
+        result=self.save(project_id, dict(model_id=job['id'], rooms=source['rooms'],
             design_notes=notes,
             objects=[dict(id=o['id'], name=o['name'], room_id=o.get('room_id') if o.get('room_id') in {r['id'] for r in source['rooms']} else None, material={}) for o in model['objects']],
             viewpoints=source['viewpoints'], links=source['links']), base_revision)
+        self.remember_import(project_id,job_id,source)
+        return result
+
+    def remember_import(self,project_id,job_id,source):
+        path=self.root(project_id)/'workflows/project-session/intake.json'
+        if not path.exists():return
+        session=read_json(path)
+        matches=session.get('job_id')==job_id
+        if source.get('plan'):
+            plan=(self.root(project_id)/source['plan']).resolve()
+            matches=plan.is_relative_to(self.root(project_id)) and read_json(plan)['source']['path']==session.get('source_path')
+        if matches:write_json(path,dict(session,adopted_job_id=job_id))
 
     def outputs(self, project_id, include_deleted=False):
         current = self.current(project_id)['revision']
@@ -142,6 +187,8 @@ class Studio:
             if job['operation'] == 'studio.render' and job.get('result'):
                 for item in job['result'].get('images', []):
                     results.append(dict(item, job_id=job['id'], revision=job['source_revision'],
+                        scene_review_status=job['result'].get('scene_review_status'),
+                        realism_status=job['result'].get('realism_status'),
                         stale=job['source_revision'] != current, status=job['status'], deleted=job['id'] in deleted))
         return results
 
@@ -168,7 +215,16 @@ class Studio:
             return dict(job_count=len(selected),restored=restore)
 
     def artifact(self, project_id, job_id, name):
-        job = self.jobs.get(job_id)
+        try:job = self.jobs.get(job_id)
+        except FileNotFoundError:
+            # Model packages created inside a review are owned by its render job.
+            if not re.fullmatch(r'[a-f0-9]{32}',job_id) or name!='model.glb':raise
+            folder=self.root(project_id)/'runs/interior-studio'/job_id
+            model=read_json(folder/'model.json');owner=self.jobs.get(model.get('scene_review_owner',''))
+            if owner['project_id']!=project_id or owner['operation']!='studio.render' or owner['status']!='completed':raise FileNotFoundError('修補模型尚未完成')
+            packet=read_json(self.root(project_id)/owner['output']/'scene-review-effective.json')
+            if packet['scene']['model_id']!=job_id:raise FileNotFoundError('非本次可採用模型')
+            return folder/'model.glb'
         if job['project_id'] != project_id or not job['operation'].startswith('studio.'):
             raise FileNotFoundError('成果不存在')
         root = (self.root(project_id)/job['output']).resolve()

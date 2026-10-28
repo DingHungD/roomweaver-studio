@@ -1,0 +1,17 @@
+{
+  "assets": [
+    {
+      "key": "sky",
+      "name": "Urban City Highsky bluesky",
+      "asset_id": "ac22f775-9f87-4746-8dc5-ea93aed0b9c3",
+      "author": "Free poly",
+      "license": "CC0-1.0",
+      "is_free": true,
+      "source": "https://www.blendkit.com/asset-gallery-detail/ac22f775-9f87-4746-8dc5-ea93aed0b9c3/",
+      "file": "city-sky.exr",
+      "sha256": "a39782f9e2fbcbd36c5a0a79e7741b86b5aaeeea7958134b79d727e9c7d3fbec",
+      "bytes": 13682651
+    }
+  ],
+  "purpose": "Packaged reusable exterior fallback. Distribution copy of the licensed example asset; never a site photograph."
+}

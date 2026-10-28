@@ -41,6 +41,8 @@ def assembly_groups(objects, path):
         if not role and not extra.get('studio_role') and isinstance(source,str):role=structural_role(source)
         if role:
             key='structure:'+role;label={'wall':'牆壁','floor':'地板'}[role];method='structural_'+role
+        elif extra.get('skp_assembly_id'):
+            key='skp:'+extra['skp_assembly_id'];label=extra.get('skp_assembly_name') or name;method='skp_source_instance'
         elif isinstance(source,str) and source:
             key='source:'+source;label=source;method='source_id'
             parent_index=parents.get(indices.get(id(node)))

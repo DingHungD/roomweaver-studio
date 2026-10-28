@@ -17,7 +17,8 @@ def proposal():
     def feature(id,role,points,closed=False):
         return dict(id=id,name=id,role=role,points=points,closed=closed,confidence='medium',evidence='visible outline',host_id=None)
     return dict(features=[feature('floor','floor',[[20,20],[380,20],[380,280],[20,280]],True),
-        feature('wall','wall',[[20,20],[380,20]]),feature('window','window',[[100,20],[200,20]])],
+        feature('wall','wall',[[20,20],[380,20]]),feature('window','window',[[100,20],[200,20]]),
+        feature('desk','furniture',[[230,170],[320,170],[320,220],[230,220]],True)],
         scale=dict(start=[20,20],end=[380,20],metres=6,evidence='dimension six metres'),uncertainties=['height unknown'])
 
 
@@ -43,6 +44,12 @@ def test_image_http_confirmation_resume_and_dedup(tmp_path):
     def fake_start(self,kind,model,payload,identifier):
         starts.append(identifier)
         result=dict(id=identifier,status='passed',kind=kind,model=model,candidate=proposal())
+        if kind=='plan_semantics':
+            source=payload['site']['geometry'];wall=next(g for g in source if g['source_role']=='wall')
+            result['candidate']=dict(summary='Synthetic source inventory',rooms=[dict(id='study',name='Study',points=payload['site']['floors'][0]['points'],source_ids=[wall['id']],evidence='Source plan')],
+                elements=[dict(id=g['id'],name=g['name'],role=g['source_role'],room_id='study',points=g['points'],closed=g['closed'],height=1.2 if g['source_role']=='window' else .75 if g['source_role']=='furniture' else 2.8,base=1 if g['source_role']=='window' else 0,host_id=wall['id'] if g['source_role']=='window' else None,source_ids=[g['id']],evidence='Source feature') for g in source if g['source_role'] in ('wall','window','furniture')],
+                door_state='absent',window_state='present',furniture_state='present',inventory_evidence='Source desk preserved',questions=[])
+            assert payload['source_images'], 'Image interpretation must include the original normalized image'
         write_json(self.root/identifier/'task.json',result)
         return result
     with patch.object(Jobs,'loop',return_value=None),patch('interior.workbench.agent_runtime.service.AgentTasks.start',fake_start):
@@ -81,6 +88,16 @@ def test_image_http_confirmation_resume_and_dedup(tmp_path):
             saved=c.put(url+'/plans/'+draft['id'],json={'base_revision':draft['revision'],'settings':settings},headers=h).json()
             assert c.post(build,json={'plan_revision':draft['revision'],'confirmed':True},headers=h).status_code==409
             assert c.post(build,json={'plan_revision':saved['revision']},headers=h).status_code==422
+            # Geometry and scale alone no longer constitute a confirmed intake.
+            assert c.post(build,json={'plan_revision':saved['revision'],'confirmed':True},headers=h).status_code==422
+            from uuid import uuid4
+            semantic_url=url+'/plans/'+draft['id']+'/semantics'
+            semantic=c.post(semantic_url,json=dict(base_revision=saved['revision'],model='test-image',operation_id=uuid4().hex),headers=h)
+            assert semantic.status_code==200,semantic.text
+            adopted=c.post(semantic_url+'/'+semantic.json()['id']+'/adopt',json=dict(base_revision=saved['revision']),headers=h)
+            assert adopted.status_code==200,adopted.text
+            saved=adopted.json();settings=saved['settings'];settings['intake_review']=dict(purposes=True,structure=True,furniture=True)
+            saved=c.put(url+'/plans/'+draft['id'],json=dict(base_revision=saved['revision'],settings=settings),headers=h).json()
             payload={'plan_revision':saved['revision'],'confirmed':True}
             a=c.post(build,json=payload,headers=h);b=c.post(build,json=payload,headers=h)
             assert a.status_code==200,a.text
@@ -93,4 +110,4 @@ def test_image_http_confirmation_resume_and_dedup(tmp_path):
         with TestClient(create_app(tmp_path),base_url='http://127.0.0.1') as c:
             assert c.get(url+'/image-plans/current').json()['plan']['revision']==saved['revision']
             assert c.get(url+'/image-plans/current').json()['plan']['settings']['question_notes'][0]['answer']=='saved synthetic answer'
-            assert len(starts)==1
+            assert len(starts)==2

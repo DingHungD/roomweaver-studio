@@ -38,6 +38,33 @@ class StudioTests(unittest.TestCase):
     def save(self):
         return self.studio.save('TEST',synthetic_scene(),None)
 
+    def test_realism_scope_persists_in_queue_and_dedup(self):
+        initial=self.save()
+        run=self.graph.start('TEST',initial['revision'],'realism-new-home','preview',False,None,'one')
+        self.assertEqual(self.graph.start('TEST',initial['revision'],'realism-new-home','preview',False,None,'one')['run_id'],run['run_id'])
+        with self.assertRaises(Conflict):self.graph.start('TEST',initial['revision'],'realism-new-home','preview',False,None,'two')
+        with self.assertRaises(ValueError):self.graph.start('TEST',initial['revision'],'realism-bad-view','preview',False,None,'absent')
+        with self.assertRaises(ValueError):self.graph.start('TEST',initial['revision'],'realism-no-final','final',False,None,'one')
+        result=self.graph.resume(run['run_id'],initial['revision'],run['confirmation_id'])
+        packet=read_json(self.store.state_dir/'jobs'/result['job_id']/'request.json')
+        self.assertEqual(packet['parameters']['realism_point_id'],'one')
+        self.assertFalse(packet['parameters']['scene_review'])
+
+    def test_whole_realism_scope_is_durable_and_deduplicated(self):
+        initial=self.save()
+        with self.assertRaises(ValueError):self.graph.start('TEST',initial['revision'],'all-no-point','preview',realism_all=True)
+        run=self.graph.start('TEST',initial['revision'],'whole-room-test','preview',agent_model='gpt-6-sol',realism_point_id='one',realism_all=True,prepare_openings=True)
+        with self.assertRaises(Conflict):self.graph.start('TEST',initial['revision'],'whole-room-test','preview',agent_model='gpt-6-sol',realism_point_id='one',realism_all=False,prepare_openings=True)
+        self.graph.close();self.graph=Coordinator(self.studio)
+        result=self.graph.resume(run['run_id'],initial['revision'],run['confirmation_id'])
+        packet=read_json(self.store.state_dir/'jobs'/result['job_id']/'request.json')['parameters']
+        self.assertTrue(packet['realism_all'] and packet['prepare_openings'])
+        self.assertEqual(packet['agent_model'],'gpt-6-sol')
+        self.assertEqual(self.graph.resume(run['run_id'],initial['revision'],run['confirmation_id'])['job_id'],result['job_id'])
+        missing=copy.deepcopy(initial['scene']);missing['viewpoints'][1]['shots']=[]
+        revised=self.studio.save('TEST',missing,initial['revision'])
+        with self.assertRaises(ValueError):self.graph.start('TEST',revised['revision'],'all-no-direction','preview',realism_point_id='one',realism_all=True)
+
     def test_empty_before_import_and_revision_conflict(self):
         self.assertIsNone(self.studio.current('TEST')['scene'])
         initial=self.save()
@@ -47,6 +74,28 @@ class StudioTests(unittest.TestCase):
         self.assertEqual(self.studio.revision('TEST',initial['revision'])['scene']['objects'][0]['name'],'Wall')
         self.assertEqual(second['scene']['objects'][0]['id'],'wall')
         with self.assertRaises(Conflict):self.studio.save('TEST',changed,initial['revision'])
+
+    def test_realism_requirements_survive_restart_and_bind_replay(self):
+        initial=self.save();brief='Utility unit: open shelf. Source: existing owner record.'
+        run=self.graph.start('TEST',initial['revision'],'realism-record','preview',False,None,'one',brief)
+        self.graph.close();self.graph=Coordinator(self.studio)
+        self.assertEqual(self.graph.get(run['run_id'])['realism_brief'],brief)
+        with self.assertRaises(Conflict):self.graph.start('TEST',initial['revision'],'realism-record','preview',False,None,'one','different purpose')
+        result=self.graph.resume(run['run_id'],initial['revision'],run['confirmation_id'])
+        packet=read_json(self.store.state_dir/'jobs'/result['job_id']/'request.json')
+        self.assertEqual(packet['parameters']['realism_brief'],brief)
+        self.assertEqual(self.studio.current('TEST')['revision'],initial['revision'])
+
+    def test_scene_review_is_durable_and_part_of_dedup_identity(self):
+        initial=self.save()
+        run=self.graph.start('TEST',initial['revision'],'whole-scene-test','preview',True,'chosen-model')
+        again=self.graph.start('TEST',initial['revision'],'whole-scene-test','preview',True,'chosen-model')
+        self.assertEqual(run['run_id'],again['run_id'])
+        with self.assertRaises(Conflict):self.graph.start('TEST',initial['revision'],'whole-scene-test','preview',False,'chosen-model')
+        submitted=self.graph.resume(run['run_id'],initial['revision'],run['confirmation_id'])
+        params=read_json(self.store.state_dir/'jobs'/submitted['job_id']/'request.json')['parameters']
+        self.assertTrue(params['scene_review'])
+        self.assertEqual(params['agent_model'],'chosen-model')
 
     def test_lighting_revision_binding_and_deduplicated_proposal(self):
         from interior.workbench.studio.models import LightingSetup,StudioLight

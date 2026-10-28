@@ -112,6 +112,29 @@ def test_material_target_and_reference_url_are_validated(tmp_path):
         with pytest.raises(ValueError):AssetReference(asset_id=FREE,version_id=VERSION,task_id='a'*32,name='test',url='javascript:alert(1)',kind='model',license='cc_zero',is_free=True)
     finally:jobs.close()
 
+def test_shared_style_survives_save_clear_and_old_candidates_keep_geometry_guards(tmp_path):
+    studio,jobs,first=environment(tmp_path)
+    try:
+        service=AssetMatching(studio,FakeAgents())
+        group=next(g for g in first['scene']['groups'] if 'sofa' in g['children'])
+        task=service.start('ASSETS',MatchRequest(base_revision=first['revision'],group_id=group['id'],operation_id='style-sync'))
+        from interior.workbench.storage import read_json
+        path=service.folder('ASSETS')/task['id']/'input.json'
+        legacy=read_json(path);legacy['context']['group'].pop('style_prompt',None);write_json(path,legacy)
+        scene=copy.deepcopy(first['scene'])
+        target=next(g for g in scene['groups'] if g['id']==group['id']);target['style_prompt']='neutral oak'
+        saved=studio.save('ASSETS',scene,first['revision'])
+        body=SelectAsset(base_revision=saved['revision'],asset_id=FREE,operation_id='style-candidate')
+        service.candidate('ASSETS',task['id'],body)
+        assert next(g for g in studio.current('ASSETS')['scene']['groups'] if g['id']==group['id'])['style_prompt']=='neutral oak'
+        target['style_prompt']='';saved=studio.save('ASSETS',scene,saved['revision']);body.base_revision=saved['revision']
+        current,_,_=service.candidate('ASSETS',task['id'],body)
+        assert next(g for g in current['scene']['groups'] if g['id']==group['id'])['style_prompt']==''
+        target['translation']=[1,0,0];moved=studio.save('ASSETS',scene,saved['revision']);body.base_revision=moved['revision']
+        with pytest.raises(Conflict,match='單物件'):service.candidate('ASSETS',task['id'],body)
+        assert not jobs.list()
+    finally:jobs.close()
+
 def test_glb_dimensions_include_parent_transforms_and_axis_conversion(tmp_path):
     import struct
     from interior.workbench.studio.asset_matching import preview_dimensions

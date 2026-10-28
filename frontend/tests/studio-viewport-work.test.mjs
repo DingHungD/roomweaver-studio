@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import {outlineGeometry,prepareTextures} from '../src/features/visualization/viewportWork.ts';
+import {outlineGeometry,prepareTextures,disposeScene} from '../src/features/visualization/viewportWork.ts';
 test('optional outlines bound complex mesh work without replacing source geometry',()=>{
  const source=new THREE.SphereGeometry(2,180,100);source.translate(3,4,5);
  const original=source.getAttribute('position').count;
@@ -24,4 +24,11 @@ test('leaving a loading model cancels uploads without touching its resources',as
  let cancelled=false,uploads=0;
  const ready=await prepareTextures(root,()=>uploads++,{cancelled:()=>cancelled,progress:()=>{},yieldUI:async()=>{cancelled=true;}});
  assert.equal(ready,false);assert.equal(uploads,0);
+});
+
+test('leaving repeated imported geometry releases shared GPU resources exactly once',()=>{
+ const root=new THREE.Group(),geometry=new THREE.BoxGeometry(),texture=new THREE.Texture(),material=new THREE.MeshStandardMaterial({map:texture});
+ for(let i=0;i<100;i++)root.add(new THREE.Mesh(geometry,material));
+ const disposed={geometry:0,texture:0,material:0};for(const [name,value] of Object.entries({geometry,texture,material}))value.addEventListener('dispose',()=>disposed[name]++);
+ disposeScene(root);assert.deepEqual(disposed,{geometry:1,texture:1,material:1});
 });

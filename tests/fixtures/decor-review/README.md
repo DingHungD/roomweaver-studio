@@ -1,0 +1,1 @@
+Synthetic decor validation input owned by the test suite. `check_native.py` creates translated, rotated supports and three bounded decor models, checks triangle support and renders disposable previews. No client assets. Regenerate output by running `tests/integration/test_decor_pipeline.py`; output belongs to pytest's temporary directory and may be cleared.

@@ -70,3 +70,24 @@ def test_access_rejection_during_batch_does_not_retry_or_search_other_objects(tm
     with patch('interior.workbench.studio.asset_batch.run_matching',side_effect=ModelAccessError('model not supported')) as match:
         with pytest.raises(ModelAccessError):run_batch(None,tmp_path,dict(targets=targets),'model',lambda p:None,None)
     assert match.call_count==1 and not (tmp_path/'1.json').exists()
+
+
+@pytest.mark.parametrize('mcp',[None,{'command':'approved-tool'}])
+def test_judgment_and_tool_tasks_receive_distinct_execution_roles(tmp_path,mcp):
+    import queue
+    runtime=object.__new__(CodexRuntime);runtime.catalog=CATALOG;runtime.directory=tmp_path;runtime.version='fixture'
+    runtime.events=queue.Queue();runtime.events.put(dict(method='item/completed',params=dict(threadId='thread',item=dict(type='agentMessage',text='proposal'))));runtime.events.put(dict(method='turn/completed',params=dict(threadId='thread',turn=dict(status='completed'))))
+    captured=[]
+    def rpc(method,params):
+        captured.append((method,params))
+        if method=='config/read':return {'config':{}}
+        if method=='thread/start':return {'thread':{'id':'thread'},'model':'inference-model'}
+        if method=='turn/start':return {'turn':{'id':'turn'}}
+        raise AssertionError(method)
+    runtime.request=rpc
+    result=runtime.run('Return a bounded proposal',mcp=mcp)
+    thread=next(params for method,params in captured if method=='thread/start')
+    assert thread['config']['features.shell_tool'] is False and thread['sandbox']=='read-only'
+    assert ('無工具' in thread['developerInstructions'])==(mcp is None)
+    assert ('mcp_servers.interior_studio' in thread['config'])==(mcp is not None)
+    assert result['text']=='proposal' and result['model']=='inference-model'

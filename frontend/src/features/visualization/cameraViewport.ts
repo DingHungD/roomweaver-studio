@@ -12,3 +12,13 @@ export function frameViewport(camera:OrthographicCamera|PerspectiveCamera,width:
  camera.setViewOffset(width,height,width/2-safe.x,height/2-safe.y,width,height);
  return safe;
 }
+
+/** Fit the actual Blender sensor frame inside the unobscured preview area. */
+export function frameShotViewport(camera:PerspectiveCamera,width:number,height:number,insets:ViewInsets,shot:{lens:number;aspect?:'4:3'|'16:9';shift_y?:number}){
+ const safe=usableViewport(width,height,insets),aspect=shot.aspect==='16:9'?16/9:4/3;
+ const frameHeight=Math.min(safe.height,safe.width/aspect),frameWidth=frameHeight*aspect;
+ const left=safe.x-frameWidth/2,top=safe.y-frameHeight/2;
+ camera.filmGauge=36;camera.aspect=aspect;camera.setFocalLength(shot.lens);
+ camera.setViewOffset(frameWidth,frameHeight,-left,-top-(shot.shift_y||0)*frameWidth,width,height);
+ return {left,top,width:frameWidth,height:frameHeight};
+}

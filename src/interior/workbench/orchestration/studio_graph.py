@@ -24,6 +24,11 @@ class State(TypedDict, total=False):
     project_id: str
     revision: str
     quality: str
+    scene_review: bool
+    realism_point_id: str | None
+    realism_all: bool
+    prepare_openings: bool
+    realism_brief: str
     confirmation_id: str
     job_id: str
     status: str
@@ -151,7 +156,7 @@ class Coordinator:
         scene=self.studio.revision(state['project_id'],state['revision'])['scene']
         self.studio.check_render_readiness(state['project_id'],scene['model_id'],scene.get('lighting_setup'))
         job = self.studio.jobs.submit_studio(state['project_id'], 'render',
-            dict(revision=state['revision'], quality=state['quality']), 'workflow-'+state['run_id'])
+            dict(revision=state['revision'], quality=state['quality'], scene_review=state.get('scene_review',False), realism_point_id=state.get('realism_point_id'), realism_brief=state.get('realism_brief',''), agent_model=state.get('agent_model'),realism_all=state.get('realism_all',False),prepare_openings=state.get('prepare_openings',False)), 'workflow-'+state['run_id'])
         return dict(job_id=job['id'], status='rendering')
 
     def _wait(self, state):
@@ -167,13 +172,13 @@ class Coordinator:
                 (run['run_id'], run['project_id'], run['operation_id'], json.dumps(run,ensure_ascii=False)))
         return run
 
-    def start(self, project_id, revision, operation_id, quality):
+    def start(self, project_id, revision, operation_id, quality, scene_review=False, agent_model=None, realism_point_id=None, realism_brief="", realism_all=False, prepare_openings=False):
         with self.lock, self.studio.store.lock:
             with self.studio.jobs.connect() as db:
                 row = db.execute('SELECT data FROM studio_workflows WHERE operation_id=?', (operation_id,)).fetchone()
             if row:
                 prior=json.loads(row[0])
-                if (prior['project_id'],prior['revision'],prior['quality']) != (project_id,revision,quality):
+                if (prior['project_id'],prior['revision'],prior['quality'],prior.get('scene_review',False),prior.get('agent_model'),prior.get('realism_point_id'),prior.get('realism_brief',''),prior.get('realism_all',False),prior.get('prepare_openings',False)) != (project_id,revision,quality,scene_review,agent_model,realism_point_id,realism_brief,realism_all,prepare_openings):
                     raise Conflict('流程操作識別碼已用於不同內容')
                 return self.get(prior['run_id'])
             if self.studio.current(project_id)['revision'] != revision:
@@ -182,8 +187,14 @@ class Coordinator:
             self.studio.check_render_readiness(project_id,scene['model_id'],scene.get('lighting_setup'))
             if not scene['viewpoints']:
                 raise ValueError('請先設定觀看點')
+            if (realism_all or prepare_openings) and not realism_point_id:raise ValueError("請選擇寫實精修範圍")
+            if realism_all and any(not p["shots"] for p in scene["viewpoints"]):raise ValueError("全案精修需要每個觀看點至少一個效果圖方向")
+            if realism_point_id and not any(p['id']==realism_point_id and p['shots'] for p in scene['viewpoints']):
+                raise ValueError('寫實試作需選擇含效果圖方向的觀看點')
+            if realism_point_id and (scene_review or quality!='preview'):
+                raise ValueError('寫實精修先使用獨立試作；採用後再整屋檢查與正式出圖')
             run=dict(run_id=uuid4().hex,project_id=project_id,revision=revision,operation_id=operation_id,
-                quality=quality,confirmation_id=uuid4().hex,status='awaiting_confirmation',created_at=now())
+                quality=quality,scene_review=scene_review,realism_point_id=realism_point_id,realism_brief=realism_brief,realism_all=realism_all,prepare_openings=prepare_openings,agent_model=agent_model,confirmation_id=uuid4().hex,status='awaiting_confirmation',created_at=now())
             self._persist(run)
             self.graph.invoke({k:v for k,v in run.items() if k in State.__annotations__},self._config(run['run_id']))
             return self.get(run['run_id'])

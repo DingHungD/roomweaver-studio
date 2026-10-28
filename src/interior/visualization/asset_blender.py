@@ -95,7 +95,8 @@ def replace_asset(request):
             angle=0
         fitted_scale=None;dimension_plan=None
         from asset_dimensions import ADAPTABLE, adaptation, apply as apply_dimensions
-        policy=request.get('asset_requirements') or {}
+        policy=dict(request.get('asset_requirements') or {})
+        if request.get('fixture_installation'):policy['installation_mode']=request['fixture_installation']['mode']
         adaptable=asset['kind']=='model' and request.get('dimension_fit')=='adapt' and policy.get('purpose') in ADAPTABLE and policy.get('dimension_source')=='confirmed'
         if request.get('auto_fit'):
             from asset_fit import choose_fit, DECOR_ASSETS
@@ -116,6 +117,7 @@ def replace_asset(request):
             else:
                 _,fitted_scale,_=choose_fit(list(target_size),list(extent),policy=policy,allow_rotate=False)
         factor=fitted_scale if fitted_scale is not None else min(target_size[i]/extent[i] for i in range(3))
+        if asset['kind']=='generated' and policy.get('dimension_source')!='confirmed':factor=min(1.,factor)
         repair_scale=request.get('repair_scale',1)
         if not math.isfinite(repair_scale) or not .8<=repair_scale<=1:raise ValueError('模型修正比例超出允許範圍')
         if repair_scale!=1:
@@ -128,7 +130,7 @@ def replace_asset(request):
             if min(extent.x*factor,extent.y*factor)<.08:raise ValueError('修正後家具尺寸過小')
         center=Vector(((lo.x+hi.x)/2,(lo.y+hi.y)/2,lo.z))
         anchor=Vector(((target_lo.x+target_hi.x)/2,(target_lo.y+target_hi.y)/2,target_lo.z))
-        if concepts and concepts[0]['asset']=='ceiling_light':
+        if (concepts and concepts[0]['asset']=='ceiling_light') or (any(l.get('group_id')==gid for l in design.get('lighting_setup',{}).get('lights',[])) and any(t in group['name'].lower() for t in ('ceiling','天花','吸頂'))):
             # Mount the top to the ceiling; a thinner shade must not float below it.
             anchor.z=target_hi.z-extent.z*factor
             for light in design.get('lighting_setup',{}).get('lights',[]):
@@ -146,10 +148,21 @@ def replace_asset(request):
             apply_dimensions(meshes,fitted_lo,fitted_hi,dimension_plan)
             adjusted_lo,adjusted_hi=bounds(meshes)
             if any(abs(actual-wanted)>max(.002,.02*wanted) for actual,wanted in zip(adjusted_hi-adjusted_lo,dimension_plan['target_dimensions'])):raise ValueError('尺寸改造後量測未符合目標，保留原件')
+        installation=None
+        if request.get('fixture_installation'):
+            from fixture_mount import mount
+            installation=mount(design,group,meshes,request['fixture_installation'],request['model_id'])
+            for identifier in installation['modified_ids']:untouched.pop(identifier,None)
         placement={}
+        support_report=None
+        if policy.get('purpose') in ('vase','books','tableware'):
+            from decor_review import support_check
+            support_report=support_check(design,group,meshes)
         if request.get('auto_fit') or dimension_plan:
             from asset_collision import check_placement
-            try:placement=check_placement(design,group,meshes)
+            try:
+                placement=check_placement(design,group,meshes,verified_support=(installation or {}).get('ceiling_group_id') or (support_report or {}).get('support_group_id'))
+                if installation and any(abs(v)>.001 for v in placement['translation']):raise ValueError('燈具接合後仍與其他物件衝突，不能偏移成懸浮；保留原件並改試候選')
             except ValueError as exc:
                 (output/'replacement-check.json').write_text(json.dumps(dict(error=str(exc),collisions=getattr(exc,'details',[])),ensure_ascii=False),encoding='utf-8')
                 if asset['kind']=='generated':
@@ -169,6 +182,15 @@ def replace_asset(request):
         from asset_fit import fit_report
         report=dict(fit_policy=fit_report(list(target_size),list(bounds(meshes)[1]-bounds(meshes)[0]),policy),placement=placement,original_dimensions=list(target_size),asset_dimensions=list(extent),uniform_scale=factor,
             resulting_dimensions=list(bounds(meshes)[1]-bounds(meshes)[0]),dimension_adjustment=dimension_plan,repair_scale=repair_scale,rotation=angle+(requested_angle if request.get('auto_fit') else 0),auto_fit=request.get('auto_fit',False),generated=asset['kind']=='generated',direction_status='needs_review',direction_note='方向待確認；外框適配不代表候選使用側已辨識')
+        report['installation']=installation
+        if policy.get('purpose') in ('vase','books','tableware'):
+            from decor_review import previews
+            report['support']=support_report
+            report['visual_review']=previews(design,group,meshes,output)
+        else:
+            from model_review import inspect, previews
+            report['model_check']=inspect(meshes)
+            report['visual_review']=previews(design,group,meshes,output)
     else:
         with bpy.data.libraries.load(asset['path'],link=False) as (src,dst):dst.materials=src.materials
         materials=[m for m in dst.materials if m]
@@ -219,16 +241,12 @@ def replace_asset(request):
     if setup.get('source_job_id'):
         request['retained_lighting_job']=setup['source_job_id']
     bpy.context.view_layer.update()
-    for obj,original,materials in preview_overrides:
-        obj.data.materials.clear()
-        for m in materials:obj.data.materials.append(m)
-    try:
-        bpy.ops.export_scene.gltf(filepath=request['preview'],export_format='GLB',export_extras=True,
-            export_apply=True,export_cameras=False,export_lights=True)
-    finally:
-        for obj,original,_ in preview_overrides:
-            obj.data.materials.clear()
-            for material in original:obj.data.materials.append(material)
+    from preview_emission import compatible_emission,material_overrides
+    with material_overrides(preview_overrides):
+        with compatible_emission(bpy.context.scene.objects) as emission_materials:
+            bpy.ops.export_scene.gltf(filepath=request['preview'],export_format='GLB',export_extras=True,
+                export_apply=True,export_cameras=False,export_lights=True)
+            report['preview_emission_materials']=emission_materials
     # Validate the actual exported texture/coordinate contract before adoption.
     if asset['kind'] in ('material','preview'):
         import struct

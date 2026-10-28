@@ -6,7 +6,26 @@ def parts(purpose, design):
     def legs(top):
         for x in (-.45,.45):
             for y in (-.45,.45):box('leg',x,y,top/2,.07,.07,top,'accent')
-    if purpose in ('table','desk','dresser'):
+    if purpose=='vase':
+        # Hollow ceramic vessel, real curved silhouette; flowers are bounded ellipsoids.
+        result.append(dict(name='hollow vase',center=[0,0,0],size=[1,1,1],material='enamel',shape='lathe',profile=[(0,0),(.22,0),(.3,.08),(.32,.28),(.19,.48),(.18,.56),(.145,.56),(.155,.48),(.28,.28),(.26,.08),(0,.04)]))
+        for i,(x,y,z) in enumerate(((-.2,-.04,.91),(.17,.06,.95),(.02,-.17,.85))):
+            box('flower stem',x*.5,y*.5,.65,.022,.022,.58,'accent')
+            result[-1]['shape']='sphere'
+            for dx,dy in ((-.1,0),(.1,0),(0,-.1),(0,.1)):
+                box('flower petal',x+dx,y+dy,z,.22,.22,.1,'fabric');result[-1]['shape']='sphere'
+            box('flower center',x,y,z+.01,.1,.1,.08,'wood');result[-1]['shape']='sphere'
+    elif purpose=='books':
+        for i in range(3):
+            z=i/3;w=1-.08*i;d=1-.05*i
+            box('paper pages',0,0,z+.16,w-.025,d-.025,.27,'enamel')
+            for dz in (.013,.307):box('book cover',0,0,z+dz,w,d,.025,'accent' if i%2==0 else 'wood')
+            box('book spine',-w/2+.015,0,z+.16,.03,d,.30,'accent')
+    elif purpose=='tableware':
+        for i in range(2):
+            result.append(dict(name='ceramic plate',center=[0,0,i*.055],size=[1,1,1],material='enamel',shape='lathe',profile=[(0,0),(.3,0),(.5,.07),(.5,.105),(.3,.035),(0,.035)]))
+        result.append(dict(name='hollow bowl',center=[0,0,.09],size=[1,1,1],material='enamel',shape='lathe',profile=[(0,0),(.15,0),(.32,.45),(.34,.82),(.30,.82),(.285,.46),(.13,.04),(0,.04)]))
+    elif purpose in ('table','desk','dresser'):
         top=.62 if purpose=='dresser' else .96
         box('tabletop',0,0,top+.02,1,1,.04);legs(top)
         if purpose=='dresser':box('mirror',0,.46,.82,.8,.06,.36,'glass')
@@ -83,4 +102,8 @@ def parts(purpose, design):
         box('shower rail',0,.44,.58,.03,.03,.7,'accent')
         box('shower head',0,.32,.93,.2,.25,.04,'accent')
     else:raise ValueError('此用途尚無可保留必要機能的概念模型')
+    for part in result:
+        if part.get('shape')=='lathe':
+            origin=list(part['center']);radius=max(p[0] for p in part['profile']);bottom=min(p[1] for p in part['profile']);top=max(p[1] for p in part['profile'])
+            part.update(origin=origin,center=[origin[0],origin[1],origin[2]+(bottom+top)/2],size=[2*radius,2*radius,top-bottom])
     return result

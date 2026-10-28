@@ -169,7 +169,7 @@ def site_packet(plan, request):
     requirements=[dict(id=f'R{i+1}',text=text.strip()) for i,text in enumerate(request.requirements)]
     if any(not r['text'] or len(r['text'])>500 for r in requirements):raise ValueError('每項需求需有內容且不超過 500 字')
     return dict(units='m',axes='X right, Y up; rotation counterclockwise; coordinates match preview',
-        items=items,origin=checked['source_origin_metres'],brief=request.brief,requirements=requirements,
+        items=items,rooms=checked.get('rooms',[]),origin=checked['source_origin_metres'],brief=request.brief,requirements=requirements,
         movable_ids=sorted(movable),passage_width=request.passage_width,catalog=CATALOG,
         confirmed_answers=[dict(title=n['title'],answer=n['answer'],accepted_for_concept=n['question_id'] in plan['settings'].get('reviewed',[])) for n in plan['settings'].get('question_notes',[]) if n.get('answer','').strip()],
         unresolved_dimensions=[r for r in checked.get('dimension_report',[]) if r['status']!='applied'],
@@ -400,6 +400,11 @@ class LayoutDesign:
         with self.studio.store.lock:
             packet=self.plans.current(project,plan)
             if packet['revision']!=request.base_revision:raise Conflict('平面已改動，請保存後重新提出配置')
+            semantic=packet['parsed'].get('intake_semantics')
+            if semantic:
+                review=packet['settings'].get('intake_review') or {}
+                if not review.get('purposes') or not review.get('structure'):raise ValueError('請先核對用途區域與牆門窗，保存後再配置家具')
+                if semantic.get('furniture_state')!='absent':raise ValueError('原圖已有家具或尚未核對；預設沿用，不自動重新配置')
             if digest(self.studio.root(project)/packet['source']['path'])!=packet['source']['sha256']:raise ValueError('來源檔案已改變，不能沿用配置')
             site=site_packet(packet,request)
             if request.parent_id:

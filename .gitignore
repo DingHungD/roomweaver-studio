@@ -17,3 +17,10 @@ dist/
 *.blend1
 .DS_Store
 Thumbs.db
+
+# Private application and case data
+/projects/
+/shared/knowledge/
+/shared/furniture/
+*.pt
+*.pth

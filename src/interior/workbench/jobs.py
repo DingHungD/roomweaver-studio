@@ -81,7 +81,7 @@ class Jobs:
     def submit_studio(self,project_id,operation,parameters,operation_id):
         """Reserve one deterministic effect in the same transaction as its queue item."""
         import re
-        if operation not in ('prepare','render','lighting','replace') or not re.fullmatch(r'[A-Za-z0-9_-]{8,100}',operation_id):
+        if operation not in ('prepare','render','lighting','replace','source-site') or not re.fullmatch(r'[A-Za-z0-9_-]{8,100}',operation_id):
             raise ValueError('Studio 工作識別碼無效')
         project=self.store.project(project_id)
         fingerprint=hashlib.sha256(json.dumps([project_id,operation,parameters],sort_keys=True,ensure_ascii=False).encode()).hexdigest()

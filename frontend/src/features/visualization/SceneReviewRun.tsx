@@ -1,0 +1,17 @@
+import {useEffect,useState} from 'react';
+import {api,fileUrl} from './api';
+import type {Revision} from './api';
+type Issue={category:string;target_id:string|null;reason:string;error?:string;action:string;confirmation_question?:string|null;values?:Record<string,unknown>};
+type Report={status:string;revision:string;changed?:boolean;error?:string;pending?:Issue[];attempts:{number:number;status:string;summary?:string;error?:string;diagnostic_error?:string;resolved?:Issue[];issues:Issue[];changes:Issue[];images:{file:string;thumbnail:string;name:string}[]}[]};
+export default function SceneReviewRun({project,jobId,revision,dirty,onAdopt,onNavigate}:{project:string;jobId:string;revision:string|null;dirty:boolean;onAdopt:(r:Revision)=>void;onNavigate:(step:number)=>void}){
+  const [data,setData]=useState<Report|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
+  useEffect(()=>{let alive=true;async function read(){try{const next=await api<Report>(`/jobs/${jobId}/scene-review`);if(alive)setData(next);}catch(e){if(alive)setError((e as Error).message);}}void read();const timer=setInterval(read,4000);return()=>{alive=false;clearInterval(timer);};},[jobId]);
+  if(!data?.attempts.length)return null;
+  const labels:Record<string,string>={running:'整屋試圖與檢查中',passed:'試圖檢查通過 · 請確認設計',needs_attention:'預覽已保留 · 尚有問題需要確認',stopped:'已停止'};
+  return <section className="lighting-panel scene-review-panel" aria-label="整屋檢查與修正"><h3>{labels[data.status]||data.status}</h3><p>所有調整先留在本次預覽，採用後才建立編輯修訂。已確認尺寸、家具與原模型保留。</p>{(error||data.error)&&<p role="alert">{error||data.error}</p>}
+    {data.attempts.map(a=><details key={a.number} open={a.number===data.attempts.length}><summary>第 {a.number} 輪 · {a.changes.length} 項修正 · {a.issues.length} 項問題</summary><p>{a.summary||a.error||'處理中…'}</p>{a.diagnostic_error&&<p role="alert">局部複核未完成：{a.diagnostic_error}</p>}{a.resolved?.map((i,n)=><p key={'resolved-'+n}><b>複核解除：</b>{i.reason}</p>)}<div className="lighting-probes">{a.images.map(im=><a key={im.file} href={fileUrl(project,jobId,im.file)} target="_blank" rel="noreferrer"><img loading="lazy" src={fileUrl(project,jobId,im.thumbnail)} alt={im.name}/><span>{im.name}</span></a>)}</div>{a.changes.map((i,n)=><p key={n}>已送重驗：{i.reason} {i.values&&<small>（{Object.entries(i.values).map(([k,v])=>`${({power:"功率",color:"光色",size:"光源大小",pitch:"俯仰",yaw:"方向",lens:"焦距",translation:"位置",eye:"取景位置",target_group_id:"取景主體",surface_z:"實測工作面高度",target_height:"提案安裝高度",render_roughness:"粗糙度"} as Record<string,string>)[k]||k}：${JSON.stringify(v)}`).join("、")}）</small>}</p>)}</details>)}
+    {data.pending?.map((i,n)=><article key={n}><p><b>{i.confirmation_question?'需要你確認：':'尚待處理：'}</b>{i.confirmation_question||i.reason}</p>{i.confirmation_question&&<details><summary>量測與判讀依據</summary><p>{i.reason}</p></details>}{i.error&&<p className="muted">{i.error}</p>}<button onClick={()=>onNavigate(({material:1,furniture:1,geometry:1,decor:5,lighting:2,viewpoint:3} as Record<string,number>)[i.category])}>前往對應編輯</button></article>)}
+    {data.changed&&data.status!=='running'&&<button disabled={busy||dirty||revision!==data.revision} onClick={async()=>{setBusy(true);setError('');try{onAdopt(await api<Revision>(`/projects/${project}/scene-review/${jobId}/adopt`,'POST',{base_revision:revision}));}catch(e){setError((e as Error).message);}finally{setBusy(false);}}}>採用本次預覽調整</button>}
+    <p className="muted">看圖通過不等於施工或全屋動線驗收；不確定與超出自動修正範圍的項目不會被當作通過。</p>
+  </section>;
+}

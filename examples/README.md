@@ -10,18 +10,17 @@
 
 圖片與 DXF 建立的是概念模型，不會自動等同於第三套已配置家具的模型。圖片辨識也不會偷偷載入 DXF 或答案 JSON；同一張圖重辨識可能出現不同疑點，須依 UI 檢查結果確認。
 
-## 準備三個空案件
+## 直接從介面開啟
 
-先依根 README 完成安裝。在 repo 根目錄執行（以下命令使用已啟用的 Python 環境）：
+先依根 README 完成安裝。在 repo 根目錄啟動（以下命令使用已啟用的 Python 環境）：
 
 ```shell
-python -m interior.workbench new-project EXAMPLE_IMAGE --name "Project04 image example" --workspace workspace
-python -m interior.workbench new-project EXAMPLE_DXF --name "Project04 DXF example" --workspace workspace
-python -m interior.workbench new-project EXAMPLE_GLB --name "Project04 GLB example" --workspace workspace
 python -m interior.workbench serve --workspace workspace
 ```
 
-開啟 `http://127.0.0.1:8765/`，在「01 匯入」選對應案件與入口，再選檔。使用既有 workspace 時可以改 ID，避免覆蓋；重複 ID 會被拒絕。UI 沒有自動把三個範例灌入同一案件。
+開啟 `http://127.0.0.1:8765/`，在「我的專案」按「＋新建專案」，選空白資料夾並確認名稱；進入「01 匯入」後點各卡片的「開啟範例」。點卡片主區域則開啟電腦的選檔視窗，可選自己的檔案或表中範例檔。
+
+每次開啟在選定專案內建立獨立收件批次，不覆蓋原件或已保存設計。圖片範例僅載入 PNG，仍須按「請 Agent 辨識」，不會偷用 DXF 或預填辨識答案；DXF 範例進入平面確認；3D 範例複製原生 BLEND／GLB 配對，準備完成後進入編輯。工具重新開啟可點首頁的專案卡片續接。
 
 ## 所有者與重建
 

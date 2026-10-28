@@ -1,0 +1,8 @@
+import {useState} from 'react';
+import {createRoot} from 'react-dom/client';
+import RecognitionSummary from '../../src/features/visualization/RecognitionSummary';
+import {SemanticLayerDrawing} from '../../src/features/visualization/SemanticLayers';
+import type {SemanticLayerItem} from '../../src/features/visualization/SemanticLayers';
+const item:SemanticLayerItem={id:'synthetic-mask',name:'合成中空構件',role:'mask',layer:'walls',category:'wall',status:'interpreted',closed:true,points:[[10,10],[90,10],[90,90],[10,90]],areas:[{points:[[10,10],[90,10],[90,90],[10,90]],holes:[[[35,35],[65,35],[65,65],[35,65]]]}],source_ids:['synthetic-source'],evidence:'Synthetic source with a hole'};
+function Preview(){const [view,onView]=useState<'objects'|'plan'>('objects'),[pending,setPending]=useState(0),[selected,select]=useState<string|null>(null);return <main style={{maxWidth:900,margin:'30px auto',fontFamily:'system-ui'}}><RecognitionSummary value={{status:pending?'blocked':'reviewed_preview',candidates:3,objects:2,reviewed:2,pending,findings:pending,native_corrected:1,layers:{items:[item],lighting_reviewed:true}}} view={view} onView={onView}/><button onClick={()=>setPending(pending?0:1)}>切換合成待辦</button><p role="status">{view==='objects'?'綜合物件':'平面用途'} · {selected||'尚未選取'}</p><svg viewBox="0 0 100 100" style={{width:500,height:500,border:'1px solid #ccc'}}>{view==='objects'&&<SemanticLayerDrawing items={[item]} view={{bounds:[0,0,100,100],scale:1,pad:0,width:100,height:100}} scale={1} selected={selected} onSelect={i=>select(i.id)} interactive/>}</svg></main>}
+createRoot(document.getElementById('root')!).render(<Preview/>);

@@ -27,6 +27,8 @@ else:
 if request.get('asset'):
     from asset_blender import replace_asset
     replace_asset(request)
+import door_asset_geometry
+door_asset_geometry.FILES=request.get('door_asset_files',{})
 scene = bpy.context.scene
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 from studio_render_checks import inspect_scene, inspect_image
@@ -46,6 +48,18 @@ def geometry_digest():
                 hashlib.sha256(b''.join(struct.pack('<fff',*v.co) for v in obj.data.vertices)).hexdigest()))
     return hashlib.sha256(json.dumps(value,sort_keys=True).encode()).hexdigest()
 
+if request['mode']=='diagnose':
+    from scene_diagnostics import inspect_groups,focused_previews,opening_obstructions
+    from scene_framing import options
+    write('diagnostics.json',dict(groups=inspect_groups(request['scene'],request.get('focus_ids')),openings=opening_obstructions(request['scene'],request.get('focus_ids',[])),framing=options(request['scene']),images=focused_previews(request['scene'],request.get('focus_ids',[]),output,Path(request['stop_file']) if request.get('stop_file') else None)))
+    sys.exit(0)
+
+if request.get('functional_repair'):
+    from scene_functional_repair import apply as repair_function,export_preview
+    write('functional-repair.json',repair_function(request))
+    write('repaired-scene.json',request['repaired_scene'])
+    export_preview(request['preview'])
+
 if request['mode'] == 'prepare':
     namespace = UUID(request['source_sha256'][:32])
     objects=[]
@@ -54,7 +68,7 @@ if request['mode'] == 'prepare':
         if obj.type in ('MESH', 'CURVE'):
             obj['studio_id']=obj.get('studio_id') or uuid5(namespace,obj.name).hex
             objects.append(dict(id=obj['studio_id'],name=obj.name,room_id=obj.get('room_id'),
-                center=list(obj.matrix_world.translation),materials=[m.name if m else None for m in obj.data.materials]))
+                center=list(obj.matrix_world.translation),materials=[m.name if m else None for m in obj.data.materials],intake_metadata=json.loads(obj.get('intake_metadata','{}'))))
     # Preserve the optimized display geometry, adding explicit native IDs to its nodes.
     # Unknown display meshes fail import rather than silently selecting a wrong object.
     raw=Path(request['preview']).read_bytes()
@@ -141,6 +155,9 @@ else:
     from concept_geometry import add_blender_furniture
     add_blender_furniture(design.get('concept_furniture',[]))
     by_id={o.get('studio_id'):o for o in bpy.data.objects if o.type in ('MESH','CURVE')}
+    if request.get('original_scene'):
+        from scene_review_checks import validate_moves
+        write('scene-geometry-check.json',validate_moves(design,request['original_scene'],by_id))
     # Apply revision edits in world space; never edit the immutable prepared model.
     edited=[]
     matrices={key:o.matrix_world.copy() for key,o in by_id.items()}
@@ -160,6 +177,9 @@ else:
     applied=[]
     for assignment in design['objects']:
         spec=assignment['material']
+        if spec.get('render_roughness') is not None and not spec.get('color'):
+            from scene_review_checks import override_roughness
+            override_roughness(by_id[assignment['id']],spec['render_roughness'])
         if not spec.get('color'):
             continue
         obj=by_id[assignment['id']]
@@ -169,7 +189,7 @@ else:
         srgb=[int(spec['color'][n:n+2],16)/255 for n in (1,3,5)]
         linear=[v/12.92 if v<=.04045 else ((v+.055)/1.055)**2.4 for v in srgb]
         shader.inputs['Base Color'].default_value=(*linear,1)
-        shader.inputs['Roughness'].default_value=spec.get('roughness',.5)
+        shader.inputs['Roughness'].default_value=spec.get('render_roughness') if spec.get('render_roughness') is not None else spec.get('roughness',.5)
         # Detach shared mesh data before changing slots; only selected object changes.
         obj.data=obj.data.copy()
         obj.data.materials.clear()
@@ -177,8 +197,52 @@ else:
         applied.append(assignment['id'])
     if geometry_digest()!=after_edits:
         raise ValueError('Material assignment changed geometry')
+    from realism_finish import apply_finish, inventory
+    for assignment in design['objects']:
+        finish=assignment['material'].get('render_finish')
+        if finish:apply_finish(by_id[assignment['id']],finish)
     from studio_lighting import apply
     apply(design,request.get('lighting_source'))
+    finish_geometry_preserved=geometry_digest()==after_edits
+    if not finish_geometry_preserved:raise ValueError('材質精修不應改變原生幾何')
+    from realism_shelf import apply_shelves
+    write('shelf-refinements.json',apply_shelves(design,by_id,request.get('realism_assets')))
+    from opening_details import add_openings
+    write('opening-details.json',add_openings(design,by_id,request.get('opening_source')))
+    if request.get('completion_evidence'):
+        from completion_fronts import export as export_front_evidence
+        write('completion-fronts.json',export_front_evidence(design,by_id,output))
+        sys.exit(0)
+    from completion_details import prepare as complete_model
+    completion_report=complete_model(design,by_id)
+    from installation_replacement import apply as apply_installations
+    write('installation-results.json',apply_installations(design,by_id,request.get('installation_assets'),completion_report))
+    write('completion-details.json',completion_report)
+    if request.get('realism_inventory'):
+        bpy.context.scene['studio_search_stop_file']=request.get('stop_file','')
+        include_cameras=not request.get('prepare_only') and request.get('realism_camera_search',True)
+        if request.get('realism_all'):
+            from realism_scope import combine_inventories
+            facts=combine_inventories([inventory(design,p['id'],by_id,include_cameras) for p in design['viewpoints'] if p['shots'] or request.get('prepare_only')])
+        else:facts=inventory(design,request['realism_inventory'],by_id,include_cameras)
+        facts['completion_results']=completion_report
+        write('realism-inventory.json',facts)
+        if request.get('inventory_only'):sys.exit(0)
+    from realism_ceiling import add_ceilings
+    ceiling_report=add_ceilings(design,by_id)
+    write("ceiling-infill.json",dict(patches=ceiling_report,original_geometry_preserved=finish_geometry_preserved))
+    if request.get('prepare_only'):
+        from realism_preview import export_snapshot
+        write('preview-package.json',export_snapshot(design,output))
+        write('result.json',dict(images=[],quality_check='geometry_only',revision=request['revision'],model_id=design['model_id']))
+        sys.exit(0)
+    exterior_objects=[]
+    if design.get('illustrative_exteriors'):
+        from realism_details import detail_options,add_exteriors
+        windows={}
+        for point in design['viewpoints']:
+            for window in detail_options(design,point,by_id,set())['windows']:windows[window['id']]=window
+        exterior_objects=add_exteriors(design,dict(windows=list(windows.values())))
     if design.get('lighting_setup',{}).get('enabled'):
         write('lighting-applied.json',dict(revision=request['revision'],lights=[dict(id=o.get('studio_light_id'),position=list(o.matrix_world.translation),power=o.data.energy) for o in scene.objects if o.type=='LIGHT' and not o.hide_render]))
     readiness=inspect_scene(scene)
@@ -189,7 +253,7 @@ else:
     scene.cycles.samples=16 if request['quality']=='preview' else 96
     scene.cycles.use_denoising=True
     scene.cycles.use_adaptive_sampling=True
-    scene.cycles.adaptive_threshold=.04 if request['quality']=='preview' else .02
+    scene.cycles.adaptive_threshold=.02 if request.get('realism_trial') else (.04 if request['quality']=='preview' else .02)
     scene.cycles.seed=17
     try:
         preferences=bpy.context.preferences.addons['cycles'].preferences
@@ -209,11 +273,23 @@ else:
     scene.render.use_compositing=False
     scene.render.film_transparent=False
     images=[]
-    total=sum(1+len(p['shots']) for p in design['viewpoints'])
+    measurements=[]
+    if request.get('scene_trial'):
+        for group in design['groups']:
+            if group['deleted']:continue
+            installed=[o for o in scene.objects if o.get('studio_installation_candidate') and o.get('studio_refined_from') in group['children'] and not o.hide_render]
+            measured=installed or [by_id[k] for k in group['children'] if k in by_id]
+            pts=[o.matrix_world@Vector(c) for o in measured for c in o.bound_box]
+            if pts:
+                box=[[fn(p[i] for p in pts) for i in range(3)] for fn in (min,max)]
+                measurements.append(dict(id=group['id'],name=group['name'],bounds=box,dimensions=[box[1][i]-box[0][i] for i in range(3)]))
+    rendered_cameras=[]
+    points=[p for p in design['viewpoints'] if request.get('realism_all') or not request.get('realism_point_id') or p['id']==request['realism_point_id']]
+    total=sum(1+len(p['shots']) for p in points)
     checks=[]
-    for probing in ((True,) if request.get('probe_only') else (True,False)):
-        scene.cycles.samples=8 if probing else (16 if request['quality']=='preview' else 96)
-        for point in design['viewpoints']:
+    for probing in ((False,) if request.get('scene_trial') else (True,) if request.get('probe_only') else (True,False)):
+        scene.cycles.samples=8 if probing else (64 if request.get('realism_trial') else 16 if request['quality']=='preview' else 96)
+        for point in points:
             specs=[dict(id='panorama',name='360°',kind='panorama',yaw=0,pitch=0,lens=24)]+[dict(s,kind='still') for s in point['shots']]
             for shot in specs:
                 if request.get('stop_file') and Path(request['stop_file']).exists():
@@ -222,25 +298,30 @@ else:
                 camera=bpy.data.cameras.new('Studio camera')
                 obj=bpy.data.objects.new('Studio camera',camera)
                 scene.collection.objects.link(obj)
-                obj.location=point['eye']
+                obj.location=shot.get('eye') or point['eye']
                 scene.camera=obj
                 if shot['kind']=='panorama':
                     camera.type='PANO'
                     camera.panorama_type='EQUIRECTANGULAR'
                     obj.rotation_euler=(math.pi/2,0,-math.pi/2)
-                    width=1024 if request['quality']=='preview' else 4096
+                    width=2048 if request.get('realism_trial') else 1024 if request['quality']=='preview' else 4096
                     height=width//2
                 else:
                     camera.type='PERSP'
                     camera.lens=shot['lens']
+                    camera.shift_y=shot.get('shift_y',0)
                     yaw,pitch=math.radians(shot['yaw']),math.radians(shot['pitch'])
                     direction=Vector((math.cos(yaw)*math.cos(pitch),math.sin(yaw)*math.cos(pitch),math.sin(pitch)))
                     obj.rotation_euler=direction.to_track_quat('-Z','Y').to_euler()
-                    width,height=(640,480) if request['quality']=='preview' else (1600,1200)
+                    width,height=(1024,768) if request.get('realism_trial') else (640,480) if request['quality']=='preview' else (1600,1200)
+                    if shot.get('aspect')=='16:9':height=round(width*9/16)
                 if probing:
                     width,height=(192,96) if shot['kind']=='panorama' else (128,96)
+                    if shot['kind']!='panorama' and shot.get('aspect')=='16:9':height=72
                 scene.render.resolution_x=width
                 scene.render.resolution_y=height
+                if not probing:
+                    rendered_cameras.append(dict(file=name,location=list(obj.location),rotation=list(obj.rotation_euler),kind=shot['kind'],lens=camera.lens,shift_y=camera.shift_y,sensor_width=camera.sensor_width,aspect=shot.get('aspect','4:3'),width=width,height=height))
                 scene.render.filepath=str(output/name)
                 write('progress.json',dict(completed=len(checks) if probing else len(images),total=total,current=('試渲染檢查 · ' if probing else '正式出圖 · ')+point['name']+' '+shot['name']))
                 bpy.ops.render.render(write_still=True)
@@ -249,7 +330,7 @@ else:
                 if probing or assessment['status']=='blocked':
                     checks.append(dict(assessment,phase='probe' if probing else 'output',file=name,viewpoint_id=point['id'],shot_id=shot['id']))
                     write('quality-checks.json',dict(revision=request['revision'],status='blocked' if assessment['status']=='blocked' else 'checking',checks=checks))
-                if assessment['status']=='blocked':
+                if assessment['status']=='blocked' and not request.get('scene_trial'):
                     bpy.data.images.remove(image)
                     raise ValueError('亮度檢查未通過：'+point['name']+' '+shot['name']+'。'+assessment['reason']+' 已停止後續出圖，原件未修改。')
                 if probing:
@@ -264,13 +345,18 @@ else:
                     viewpoint_id=point['id'],shot_id=shot['id'],kind=shot['kind'],width=width,height=height,
                     quality=request['quality'],sha256=hashlib.sha256((output/name).read_bytes()).hexdigest()))
                 bpy.data.objects.remove(obj,do_unlink=True)
-    write('quality-checks.json',dict(revision=request['revision'],status='passed',checks=checks,visual_review='pending',quality_check='passed'))
+    check_status='blocked' if any(c['status']=='blocked' for c in checks) else 'passed'
+    write('quality-checks.json',dict(revision=request['revision'],status=check_status,checks=checks,visual_review='pending',quality_check=check_status))
     if request.get('probe_only'):
         write('result.json',dict(revision=request['revision'],quality_check='passed',probe_only=True))
         sys.exit(0)
-    bpy.ops.wm.save_as_mainfile(filepath=str(output/'rendered-model.blend'),compress=True)
+    if not request.get('scene_trial'):
+        bpy.ops.wm.save_as_mainfile(filepath=str(output/'rendered-model.blend'),compress=True)
+    if request.get('realism_trial'):
+        from realism_preview import export_snapshot
+        write('preview-package.json',export_snapshot(design,output))
     write('progress.json',dict(completed=total,total=total,current='完成'))
     write('result.json',dict(images=images,revision=request['revision'],model_id=request['model_id'],
         applied_object_ids=applied,geometry_preserved=geometry_digest()==before,device=scene.cycles.device,
-        edited_group_ids=edited,added_concept_ids=[f['id'] for f in design.get('concept_furniture',[])],material_geometry_preserved=geometry_digest()==after_edits,
-        visual_review='pending',quality_check='passed'))
+        edited_group_ids=edited,added_concept_ids=[f['id'] for f in design.get('concept_furniture',[])],material_geometry_preserved=finish_geometry_preserved,
+        visual_review='pending',quality_check=check_status,measurements=measurements,illustrative_exterior_objects=exterior_objects,rendered_cameras=rendered_cameras))

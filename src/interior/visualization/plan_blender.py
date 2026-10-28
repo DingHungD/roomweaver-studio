@@ -1,5 +1,6 @@
 """Deterministic straight-wall plan builder; runs inside Blender only."""
 import math
+import json
 from pathlib import Path
 from uuid import UUID, uuid5
 
@@ -14,7 +15,9 @@ def build_plan(request):
     scene=bpy.context.scene
     scene.unit_settings.system='METRIC';scene.unit_settings.scale_length=1
     materials={}
-    for key,color in dict(wall=(.76,.72,.65,1),floor=(.46,.31,.17,1),furniture=(.25,.36,.40,1),window=(.48,.64,.72,1)).items():
+    palette=dict(wall=(.76,.72,.65,1),floor=(.46,.31,.17,1),furniture=(.25,.36,.40,1),window=(.48,.64,.72,1))
+    if plan.get('basic_model'):palette=dict(wall=(.75,.75,.75,1),floor=(.58,.58,.58,1),furniture=(.66,.66,.66,1),window=(.68,.76,.8,1))
+    for key,color in palette.items():
         mat=bpy.data.materials.new(key);mat.diffuse_color=color;mat.use_nodes=True
         bsdf=mat.node_tree.nodes.get('Principled BSDF');bsdf.inputs['Base Color'].default_value=color;bsdf.inputs['Roughness'].default_value=.65
         materials[key]=mat
@@ -22,9 +25,10 @@ def build_plan(request):
     def identify(obj,item,suffix):
         obj.name=f"{item['role']}-{item['id']}__{suffix}"
         obj['studio_id']=uuid5(namespace,item['id']+'/'+suffix).hex
-        obj['assembly_id']=item['name']+' ['+item['id']+']'
+        obj['assembly_id']=item.get('parent_assembly_name',item['name'])+' ['+item.get('parent_assembly_id',item['id'])+']'
         obj['studio_role']=item['role']
-        obj['source_entity_id']=item['id'];obj['room_id']='interior'
+        obj['source_entity_id']=item['id'];obj['room_id']=item.get('room_id') or 'interior'
+        obj['intake_metadata']=json.dumps(item.get('intake_metadata',{}),ensure_ascii=False)
         return obj
 
     def prism(item,points,base,height,suffix,material):
@@ -113,6 +117,13 @@ def build_plan(request):
         a,b=item['points'];host=next(w for w in plan['items'] if w['id']==item['host_id'])
         # The validated host is isolated; extend through its depth, never cut neighbours.
         depth=max(math.dist(p,q) for p in host['points'] for q in host['points'])+1 if host['closed'] else host['thickness']+.1
+        if not host['closed']:
+            # Keep the native opening axis. Extend only its isolated cutter so
+            # an off-centre source jamb cuts all the way through its wall band.
+            p,q=host['points'][0],host['points'][-1];length=math.dist(p,q)
+            if length:
+                offset=max(abs((v[0]-p[0])*(q[1]-p[1])-(v[1]-p[1])*(q[0]-p[0]))/length for v in (a,b))
+                depth+=2*offset
         cutter=line_box(item,a,b,depth,item['base']-.002,item['height']+.004,'cutter',None)
         before=sum(len(o.data.polygons) for o in walls[item['host_id']])
         for wall in walls[item['host_id']]:
@@ -122,10 +133,19 @@ def build_plan(request):
         bpy.data.objects.remove(cutter,do_unlink=True)
         after=sum(len(o.data.polygons) for o in walls[item['host_id']])
         cuts.append(dict(id=item['id'],host_id=item['host_id'],polygons_before=before,polygons_after=after))
-        # Keep windows transparent to day light; small frame strips identify the opening.
-        if item['role']=='window':
-            for index,z in enumerate((item['base'],item['base']+item['height']-.045)):
-                line_box(item,a,b,.06,z,.045,f'frame-{index}','window')
+        from opening_details import assembly
+        existing=set(bpy.data.objects)
+        assembly(dict(item,basic_model=bool(plan.get('basic_model'))),request['source_sha256'])
+        for obj in set(bpy.data.objects)-existing:
+            if obj.type=='MESH':obj['intake_metadata']=json.dumps(item.get('intake_metadata',{}),ensure_ascii=False)
+    continuity=plan.get('floor_continuity') or {}
+    floor_check=dict(status='checked',patch_count=0,added_area=0,remaining=continuity.get('remaining',[]),notes=continuity.get('notes',[]))
+    if continuity.get('patches'):
+        from floor_repair import add_patches, verify_patches
+        def patch_identity(obj,patch,donor):
+            obj['studio_id']=uuid5(namespace,patch['id']).hex
+        added=add_patches(continuity,list(scene.objects),patch_identity)
+        floor_check.update(verify_patches(continuity,added))
     floors=[a for a in plan['items'] if a['role']=='floor']
     bounds=[p for f in floors for p in f['points']]
     cx=(min(p[0] for p in bounds)+max(p[0] for p in bounds))/2
@@ -144,5 +164,14 @@ def build_plan(request):
     from surface_uv import ensure_uv
     for obj in scene.objects:
         if obj.type=='MESH' and obj.get('studio_role') in ('wall','floor'):ensure_uv(obj)
-    bpy.ops.export_scene.gltf(filepath=request['preview'],export_format='GLB',export_extras=True,export_lights=False,export_cameras=False)
-    return dict(openings=cuts,source='confirmed-plan',source_origin_metres=plan['source_origin_metres'],notes=['概念白模／通用占位家具，無天花；照明為提案，請在光影頁確認。'])
+    backups=[]
+    try:
+        for obj in scene.objects:
+            if obj.type!='MESH':continue
+            for slot,material in enumerate(obj.data.materials):
+                preview=bpy.data.materials.get(material.get('studio_preview_material','')) if material else None
+                if preview:backups.append((obj,slot,material));obj.data.materials[slot]=preview
+        bpy.ops.export_scene.gltf(filepath=request['preview'],export_format='GLB',export_extras=True,export_lights=False,export_cameras=False)
+    finally:
+        for obj,slot,material in backups:obj.data.materials[slot]=material
+    return dict(openings=cuts,floor_continuity=floor_check,source='confirmed-plan',source_origin_metres=plan['source_origin_metres'],notes=['概念白模／通用占位家具，無天花；照明為提案，請在光影頁確認。'])

@@ -1,0 +1,71 @@
+.gallery-page:has(.immersive-tour){display:block;height:100dvh;min-height:0;overflow:hidden;background:#111}
+.photographic-gallery.immersive-tour{position:relative;width:100%;height:100dvh;padding:0;margin:0;overflow:hidden;background:#111;color:#f4f5ef;isolation:isolate}
+#beauty-dialog.immersive-tour{position:fixed;inset:0;width:100vw;height:100dvh;max-width:100vw;max-height:100dvh;margin:0;padding:0;border:0;border-radius:0;overflow:hidden;background:#111}
+.tour-shell{position:absolute;inset:0;overflow:hidden;background:#111}
+.tour-shell:fullscreen{width:100vw;height:100dvh;background:#111}
+.immersive-tour .gallery-media,#beauty-dialog.immersive-tour .gallery-media{position:absolute;inset:0;width:100%;height:100%;min-height:0;max-height:none;border:0;border-radius:0;isolation:auto;z-index:0}
+.immersive-tour .gallery-label{display:none}
+.immersive-tour .gallery-panorama{transition:opacity .2s}
+.immersive-tour.tour-loading .gallery-panorama{opacity:.62}
+.immersive-tour .gallery-still{background:#121611}
+.gallery-quality{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:10px 0;font-size:10px;color:#d8e5cc;line-height:1.6}
+.gallery-quality button{padding:5px 8px;border:1px solid #c5d6af4d;border-radius:4px;background:#283620;color:#eff5e6;cursor:pointer}
+.gallery-quality [data-quality-status]{flex-basis:100%}
+.immersive-tour .gallery-loading{background:#0d130b70;backdrop-filter:blur(2px);color:#eff5e6;font-size:12px;z-index:7}
+.tour-hud{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:flex-start;gap:20px;padding:26px 30px 52px;background:linear-gradient(#0b100bb3,transparent);pointer-events:none;z-index:8}
+.tour-identity{display:flex;gap:12px;align-items:center;filter:drop-shadow(0 1px 5px #0008)}
+.tour-mark{font-size:34px;line-height:1;color:#e1e9d3}
+.tour-kicker{font-size:8px;letter-spacing:2px;color:#d5dece;display:block;margin-bottom:6px}
+.tour-location{display:block;font-size:20px;font-weight:500;letter-spacing:2px;text-shadow:0 1px 10px #0008}
+.tour-quick-controls{display:flex;gap:10px;align-items:center;pointer-events:auto}
+.tour-menu-button,.tour-exit{height:42px;border:1px solid #e2e9d64a;border-radius:7px;background:#182016bd;backdrop-filter:blur(12px);color:#eff5e9;padding:0 15px;font-size:12px;box-shadow:0 4px 15px #0001}
+.tour-menu-button>span{font-size:18px;vertical-align:-1px;margin-right:6px}
+.tour-menu-button:hover,.tour-exit:hover{background:#435437df}
+.tour-exit{width:42px;padding:0;font-size:18px}
+.immersive-tour .tour-hud .gallery-light-control{background:#182016bd;backdrop-filter:blur(12px);border:1px solid #e2e9d64a;border-radius:7px;height:42px;padding:0 12px;color:#f3f8ed;margin:0;font-size:11px}
+.immersive-tour .tour-hud .gallery-light-state{color:#f4faed}
+.immersive-tour .gallery-panorama-tools{right:28px;bottom:25px;background:#182016b8;border:1px solid #e2e9d64a;z-index:3;padding:5px;border-radius:7px}
+.immersive-tour .gallery-panorama-tools .gallery-angle{display:none}
+.immersive-tour .gallery-panorama-tools button{width:36px;height:36px;font-size:22px;color:#f1f7e9}
+.tour-nearby{position:absolute;bottom:26px;left:50%;transform:translateX(-50%);max-width:calc(100% - 440px);display:flex;justify-content:center;align-items:center;gap:7px;z-index:3;pointer-events:auto}
+.tour-nearby-label{font-size:9px;letter-spacing:1px;color:#e2ebd9;text-shadow:0 1px 5px #000;margin-right:4px;white-space:nowrap}
+.tour-nearby button{display:flex;align-items:center;gap:7px;border:1px solid #e7eddb66;border-radius:6px;padding:11px 14px;background:#1b2519c4;backdrop-filter:blur(12px);color:#f1f7ea;font-size:11px;white-space:nowrap;min-height:42px}
+.tour-nearby button:hover{background:#687e4be6;border-color:#d9ebbf}
+.tour-nearby svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.6;transform:rotate(90deg)}
+.tour-hint{position:absolute;bottom:82px;left:50%;transform:translateX(-50%);font-size:10px;letter-spacing:1px;white-space:nowrap;z-index:2;color:#f0f5e9;text-shadow:0 1px 8px #000,0 1px 2px #000;margin:0;pointer-events:none;transition:opacity .3s}
+.tour-interacted .tour-hint{opacity:0}
+.tour-credit{position:absolute;bottom:40px;left:30px;font-size:8px;letter-spacing:2px;color:#e1ead7;z-index:2;text-shadow:0 1px 6px #000;pointer-events:none}
+.tour-hotspots{position:absolute;inset:0;z-index:2;pointer-events:none;overflow:hidden}
+.tour-hotspot{position:absolute;display:flex;flex-direction:column;align-items:center;gap:4px;transform:translate(-50%,-50%);pointer-events:auto;background:transparent;border:0;color:#fff;padding:8px;cursor:pointer;text-shadow:0 1px 7px #000;min-width:66px;min-height:66px}
+.tour-hotspot-ring{width:54px;height:38px;border:2px solid #fff;border-radius:50%;display:grid;place-items:center;background:#ffffff30;box-shadow:0 0 0 5px #ffffff12,0 2px 8px #0005;transition:background .15s,box-shadow .15s}
+.tour-hotspot-ring svg{width:27px;height:27px;fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 1px 2px #0008)}
+.tour-hotspot-label{background:#192216c7;backdrop-filter:blur(8px);border:1px solid #d9e4c745;border-radius:4px;padding:4px 8px;font-size:10px;letter-spacing:.5px;white-space:nowrap}
+.tour-hotspot:hover .tour-hotspot-ring,.tour-hotspot:focus-visible .tour-hotspot-ring{background:#9cbb6faf;box-shadow:0 0 0 7px #c6e89a33,0 2px 8px #0005}
+.tour-panel-scrim{position:absolute;inset:0;background:#0003;border:0;z-index:5;cursor:default}
+.tour-panel{position:absolute;top:104px;bottom:104px;left:26px;width:356px;max-width:calc(100% - 52px);padding:24px;background:#182015f2;border:1px solid #c5d6af4d;border-radius:12px;backdrop-filter:blur(20px);box-shadow:0 15px 70px #0005;z-index:6;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#758e59 transparent}
+.tour-panel-close{position:absolute;right:14px;top:14px;border:0;border-radius:4px;background:#76896630;color:#dce9cf;width:30px;height:30px;z-index:1;font-size:15px}
+.immersive-tour .tour-panel .beauty-heading{display:block;padding-right:18px;margin-bottom:20px}
+.immersive-tour .tour-panel .beauty-heading .eyebrow{font-size:7px}
+.immersive-tour .tour-panel .beauty-heading h2{font-size:19px;letter-spacing:2px}
+.immersive-tour .tour-panel .beauty-heading p{font-size:10px;line-height:1.7}
+.immersive-tour .tour-panel .gallery-return{display:inline-block;font-size:10px;padding:7px 10px;margin-top:13px}
+.immersive-tour .tour-panel .gallery-toolbar{display:flex;flex-direction:column;gap:18px;padding:0;margin:0;align-items:stretch}
+.immersive-tour .tour-panel .gallery-rooms{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;overflow:visible;flex:none;padding:0}
+.immersive-tour .tour-panel .gallery-rooms button{display:block;position:relative;padding:0;overflow:hidden;border:1px solid #9cb18644;border-radius:6px;background:#283620;color:#d8e5cc;text-align:left;min-width:0}
+.immersive-tour .tour-panel .gallery-rooms button.active{border-color:#d6e9be;box-shadow:0 0 0 1px #cde2b37a}
+.immersive-tour .tour-panel .gallery-rooms img{display:block;width:100%;aspect-ratio:1.6;object-fit:cover;background:#25301f}
+.immersive-tour .tour-panel .gallery-rooms button>span{display:flex;align-items:center;gap:6px;padding:10px 9px}
+.immersive-tour .tour-panel .gallery-rooms small{font-size:8px;margin:0;color:#a6bc91}
+.immersive-tour .tour-panel .gallery-rooms strong{font-size:11px;letter-spacing:1px;font-weight:400}
+.immersive-tour .tour-panel .gallery-modes{align-self:stretch;margin:0;justify-content:stretch}
+.immersive-tour .tour-panel .gallery-modes button{flex:1;font-size:11px;padding:10px}
+.immersive-tour .tour-panel .gallery-location-bar{position:static;min-height:0;margin:14px 0;padding:0;display:block}
+.immersive-tour .tour-panel .gallery-cameras{justify-content:flex-start}
+.immersive-tour .tour-panel .gallery-bottom{display:flex;flex-wrap:wrap;gap:14px;padding-top:0}
+.immersive-tour .tour-panel .gallery-hint{display:none}
+.immersive-tour .tour-panel .gallery-download{font-size:10px;margin:0}
+.immersive-tour .tour-panel .gallery-note{text-align:left;font-size:9px;line-height:1.8;margin-top:14px;color:#a0b38e}
+.immersive-tour .gallery-dark-notice{z-index:2;background:#192315b8;border:1px solid #98b67955;border-radius:9px;padding:20px 25px;backdrop-filter:blur(12px)}
+@media(max-width:800px){
+ .tour-hud{padding:18px 14px 45px;gap:12px}.tour-mark{display:none}.tour-kicker{font-size:6px;letter-spacing:1.1px}.tour-location{font-size:16px;letter-spacing:1px}.tour-quick-controls{gap:6px}.tour-menu-button{padding:0 10px;font-size:10px;height:38px}.tour-menu-button>span{margin-right:3px;font-size:16px}.tour-exit{height:38px;width:30px;font-size:14px}.immersive-tour .tour-hud .gallery-light-control{font-size:9px;gap:5px;padding:0 8px;height:38px}.immersive-tour .tour-hud .gallery-light-state{width:10px}.immersive-tour .gallery-panorama-tools{right:12px;bottom:118px;flex-direction:column;gap:3px;padding:4px}.immersive-tour .gallery-panorama-tools button{width:30px;height:31px;font-size:20px}.tour-nearby{bottom:max(22px,env(safe-area-inset-bottom));max-width:calc(100% - 24px);width:max-content;gap:5px}.tour-nearby-label{font-size:8px;margin-right:0}.tour-nearby button{font-size:10px;padding:9px 10px;gap:4px;min-height:42px}.tour-nearby svg{width:13px;height:13px}.tour-hint{bottom:82px;font-size:9px;letter-spacing:.5px}.tour-credit{display:none}.tour-panel{left:0;right:0;top:auto;bottom:0;width:100%;max-width:none;max-height:78dvh;padding:22px 18px max(24px,env(safe-area-inset-bottom));border-radius:15px 15px 0 0;box-shadow:0 -10px 70px #0006}.tour-hotspot-ring{width:48px;height:34px}.tour-hotspot-label{font-size:9px;padding:4px 6px}.tour-hotspot{min-width:62px;min-height:62px}
+}

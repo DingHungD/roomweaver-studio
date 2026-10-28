@@ -74,6 +74,11 @@ def luminance_report(rgb):
 
 
 def inspect_image(image):
+    from array import array
     count=len(image.pixels)//4
     stride=max(1,count//4096)
-    return luminance_report(image.pixels[i*4:i*4+3] for i in range(0,count,stride))
+    # Blender RNA slicing repeatedly copies/validates a large image buffer.
+    # Read once, then take the same samples from ordinary memory (also for 4K).
+    pixels=array('f',[0])*(count*4)
+    image.pixels.foreach_get(pixels)
+    return luminance_report(pixels[i*4:i*4+3] for i in range(0,count,stride))

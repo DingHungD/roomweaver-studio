@@ -6,6 +6,7 @@ import json
 import os
 import re
 import threading
+import time
 from interior.projects import Project
 
 
@@ -26,7 +27,18 @@ def write_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_name(path.name + '.' + uuid4().hex + '.tmp')
     temp.write_text(json.dumps(value, ensure_ascii=False, allow_nan=False, indent=2), encoding='utf-8')
-    os.replace(temp, path)
+    try:
+        for attempt in range(6):
+            try:
+                os.replace(temp, path)
+                break
+            except PermissionError as exc:
+                # Windows readers/virus scanners can briefly deny atomic rename.
+                # Keep atomicity and never reinterpret permanent failures as success.
+                if getattr(exc,'winerror',None) not in (5,32) or attempt==5:raise
+                time.sleep(.01*2**attempt)
+    finally:
+        if temp.exists():temp.unlink()
 
 
 class Store:
@@ -36,23 +48,47 @@ class Store:
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
 
-    def projects(self):
+    def projects(self, include_archived=False):
         items = []
-        for path in sorted((self.workspace/'projects').glob('*/project.json')):
-            if not path.resolve().is_relative_to((self.workspace/'projects').resolve()):
-                continue
+        for identifier,root in self.project_roots().items():
+            path=root/'project.json'
+            if not path.is_file():continue
             data = read_json(path)
+            if data.get('id')!=identifier:raise Conflict('專案登記與資料夾內的 ID 不符')
+            if data.get('studio_archived') and not include_archived:
+                continue
             items.append({k: data.get(k) for k in ('id', 'name', 'kind')})
         return items
 
     def project(self, identifier):
-        roots = []
+        roots=self.project_roots()
+        if identifier not in roots:raise FileNotFoundError('找不到唯一的已登記案件')
+        root=roots[identifier]
+        if root.resolve()!=root:raise ValueError('專案目錄已重新導向，請重新核對專案資料夾')
+        project=Project.open(root)
+        if project.metadata.get('id')!=identifier:raise Conflict('專案登記與資料夾內的 ID 不符')
+        return project
+
+    def project_roots(self):
+        roots={}
         for path in (self.workspace/'projects').glob('*/project.json'):
-            if path.resolve().is_relative_to((self.workspace/'projects').resolve()) and read_json(path).get('id') == identifier:
-                roots.append(path.parent)
-        if len(roots) != 1:
-            raise FileNotFoundError('找不到唯一的已登記案件')
-        return Project.open(roots[0])
+            if path.resolve().is_relative_to((self.workspace/'projects').resolve()):
+                identifier=read_json(path).get('id')
+                if identifier in roots:raise Conflict('專案 ID 重複')
+                roots[identifier]=path.parent.resolve()
+        registry=self.state_dir/'project-library/registry.json'
+        for item in read_json(registry).get('projects',[]) if registry.exists() else []:
+            root=Path(item['root'])
+            if not root.is_absolute():raise ValueError('專案目錄已重新導向或格式無效')
+            identifier=item['id']
+            if identifier in roots and roots[identifier]!=root:raise Conflict('專案 ID 對應多個資料夾')
+            roots[identifier]=root
+        return roots
+
+    @staticmethod
+    def initialize_project(root,metadata):
+        write_json(root/'project.json',metadata)
+        (root/'README.md').write_text(f"# {metadata['name']}\n\nOwner: {metadata['id']}. This directory is the project root.\n\n- project.json: portable identity and relative entry points.\n- sources/workbench/: immutable input batches; sources/example/: copied teaching assets.\n- workflows/: plan interpretation, scene revisions, settings and saved navigation.\n- runs/interior-studio/: working BLEND/GLB pairs, renders, thumbnails and verification.\n- deliverables/: explicitly packaged final delivery, when requested; ordinary render output remains in runs/.\n\nFolders are created when used. Keep sources, workflows and runs together. The application workspace holds the shared job/checkpoint databases and the local project registry; back up both the project directory and application state. This README and project.json cannot reconstruct deleted sources or models.\n",encoding='utf-8')
 
     def create_project(self, data):
         identifier = data['id']
@@ -62,13 +98,12 @@ class Store:
         if re.fullmatch(r'(?i)(con|prn|aux|nul|com[0-9]|lpt[0-9])', identifier):
             raise ValueError('案件 ID 是保留名稱')
         with self.lock:
-            if any(p['id'].casefold() == identifier.casefold() for p in self.projects()):
+            if any(key.casefold() == identifier.casefold() for key in self.project_roots()):
                 raise Conflict('案件 ID 已存在')
             root = self.workspace/'projects'/identifier.lower()
             root.mkdir(parents=True, exist_ok=False)
             metadata = dict(id=identifier, name=data['name'], kind=data.get('kind','user'), entries={})
-            write_json(root/'project.json', metadata)
-            (root/'README.md').write_text(f"# {data['name']}\n\nOwner: {identifier}. Awaiting GLB or supported 2D DXF import.\n\nOriginal uploads: sources/workbench/. Immutable scene revisions: workflows/interior-studio/.\nDXF interpretation and plan revisions: workflows/plan-import/. Blender jobs and images: runs/interior-studio/.\nKeep these together with the workspace databases. Sources and accepted revisions cannot be reconstructed from images alone.\n", encoding='utf-8')
+            self.initialize_project(root,metadata)
             return metadata
 
     def upload(self, identifier, name, content):

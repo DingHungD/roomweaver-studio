@@ -38,6 +38,8 @@ def ensure_uv(obj):
 def preview_tile(material, output):
     """Bake a one-metre tile without illumination, validate it, return preview PBR."""
     if not material.use_nodes:return material,dict(mode='constant')
+    from preview_emission import light_output
+    if light_output(material):return material,dict(mode='native_emission_export_adapter',native_shader_preserved=True)
     shaders=[n for n in material.node_tree.nodes if n.type=='BSDF_PRINCIPLED']
     outputs=[n for n in material.node_tree.nodes if n.type=='OUTPUT_MATERIAL' and n.is_active_output]
     if len(shaders)!=1 or not outputs or not outputs[0].inputs['Surface'].is_linked or outputs[0].inputs['Surface'].links[0].from_node!=shaders[0]:

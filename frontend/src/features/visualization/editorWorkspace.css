@@ -1,6 +1,7 @@
 /* The editor canvas owns the available surface; controls are independent overlays. */
 .editor-workspace.is-editing{height:100dvh;overflow:hidden;background:#f3f2ed}
-.is-editing>.studio-app{height:100%;display:flex;flex-direction:column}
+.is-editing>.agent-hub-main{height:100%}
+.is-editing>.agent-hub-main>.studio-app{height:100%;display:flex;flex-direction:column}
 .is-editing .studio-header{height:48px;min-height:48px;padding:0 18px}
 .is-editing .studio-header .studio-brand{font-size:16px}
 .is-editing .studio-header .studio-brand>span{font-size:22px}

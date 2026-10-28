@@ -1,0 +1,24 @@
+.agent-hub-layout{display:grid;grid-template-columns:minmax(0,1fr);align-items:start;min-height:100dvh}
+.agent-hub-layout.agent-is-open{grid-template-columns:minmax(0,1fr) 360px}
+.agent-hub-main{min-width:0;min-height:0}
+.agent-hub-main[hidden],.agent-hub-panel[hidden],.agent-hub-tab-body[hidden]{display:none!important}
+.agent-hub-trigger{display:inline-flex;align-items:center;justify-content:center;gap:7px;white-space:nowrap;flex-shrink:0}
+.agent-hub-count{min-width:19px;line-height:19px;padding:0 5px;border-radius:12px;background:#2b5144;color:#fff;font-size:11px;text-align:center}
+.agent-hub-warning{color:#93482b;font-weight:700}
+.agent-hub-panel{position:sticky;top:0;height:100dvh;min-height:0;min-width:0;display:flex;flex-direction:column;border-left:1px solid #ccd5c8;background:#fffef9;color:#263d35;font-size:13px;overflow:hidden}
+.agent-hub-heading{display:flex;align-items:center;justify-content:space-between;padding:13px 16px;flex:none;border-bottom:1px solid #dce3d5;gap:10px}
+.agent-hub-heading h2{margin:0;font-size:19px}.agent-hub-heading button{font-size:12px;padding:7px 10px}
+.agent-hub-tabs{display:flex;gap:6px;padding:10px 16px;flex:none;border-bottom:1px solid #dce3d5}
+.agent-hub-tabs button{flex:1;padding:8px 12px;background:transparent;border-color:transparent;font-size:13px}
+.agent-hub-tabs button[aria-selected=true]{background:#e6eedf;border-color:#c4d4be;color:#274e3a}
+.agent-hub-tab-body{min-height:0;flex:1;display:flex;flex-direction:column;overflow:hidden}
+.agent-hub-settings{padding:18px 16px;overflow:auto;overscroll-behavior:contain;min-height:0;scrollbar-gutter:stable}
+.agent-hub-settings h3{font-size:15px}.agent-hub-settings label{margin:18px 0}.agent-hub-settings .test-buttons{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0}.agent-hub-settings .test-buttons button{font-size:12px;padding:8px 10px}
+.agent-hub-settings .agent-task{border-top:1px solid #dce3d5;padding:14px 0;overflow-wrap:anywhere}.agent-hub-settings .agent-task>button{margin-left:8px}.agent-hub-settings .agent-task img{max-width:100%;height:auto}
+.agent-hub-settings .agent-work-error{color:#944326;background:#fbefe6;border-radius:5px;padding:9px;overflow-wrap:anywhere}
+.agent-home-layout .project-home{width:100%}.project-home-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.agent-hub-layout.agent-is-open:not(.is-editing) .studio-header{height:auto;min-height:82px;flex-wrap:wrap;gap:12px;padding-block:12px}
+.agent-hub-layout.agent-is-open.is-editing .studio-header{height:auto;min-height:48px;flex-wrap:wrap;gap:10px;padding-block:6px}
+.agent-hub-layout.agent-is-open.agent-is-narrow{grid-template-columns:minmax(0,1fr)}
+.agent-is-narrow>.agent-hub-panel{width:100%;border-left:0}
+@media(max-width:650px){.project-home-actions{justify-content:space-between}.agent-hub-heading{padding:12px 16px}}
