@@ -14,9 +14,11 @@
 
 **早期開發版。** 主要驗證環境為 Windows、Python 3.11、Node.js 24 與 Blender 4.5 LTS；其他作業系統尚未完成同等端到端驗證。圖片與 CAD 的 AI 判讀需要 Codex；模型轉檔與基本渲染在本機執行。
 
-![教學公寓的 Cycles 渲染成果](examples/from-3d/preview-living.png)
+**1020 已部署的 360° 渲染展示**
 
-上圖是隨附教學素材的渲染成果，使用有授權的共用家具與貼圖；不是目前介面的截圖。素材來源見 [範例手冊](examples/README.md)。
+[![1020 已部署網站：客廳日景開燈的 360 度展示](docs/images/studio-deployed-1020-20261029.png)](https://spatial-1020-gallery.pages.dev/?scene=living-day-on&mode=360)
+
+點擊圖片可開啟[線上展示網站](https://spatial-1020-gallery.pages.dev/?scene=living-day-on&mode=360)。上圖為客廳日景開燈的已部署全景實拍；僅公開展示截圖與連結，1020 原始模型及案件紀錄不隨 repo 分發。
 
 ## 新版介面實拍
 
@@ -46,13 +48,9 @@
 
 ![新版原模型出圖頁與已生成網站](docs/images/studio-source-20261029.png)
 
-**360° 展示網站**：公開教學模型的實際渲染，以範例附帶的觀看點生成。
+**另一個範例｜教學公寓 360° 網站**：使用 repo 隨附的公開教學模型與觀看點生成，可依[範例手冊](examples/README.md)重現。
 
 ![公開教學模型的全景展示網站](docs/images/studio-website-20261029.png)
-
-**1020 已部署的 360° 渲染展示**：以下為使用者指定之[線上展示網站](https://spatial-1020-gallery.pages.dev/?scene=living-day-on&mode=360)實拍，場景為客廳日景開燈。這是既有部署成果，與上方編輯器的即時預覽不同；本次只加入網站截圖及連結，不上傳網站素材包、模型或案件紀錄。
-
-![1020 已部署網站：客廳日景開燈的 360 度展示](docs/images/studio-deployed-1020-20261029.png)
 
 截圖來源與重拍方式見 [圖片說明](docs/images/README.md)。
 
