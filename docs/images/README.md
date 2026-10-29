@@ -24,3 +24,7 @@ These images are intentional published documentation assets. Local capture scrip
 - `studio-deployed-1020-20261029.png`: actual browser capture of the user-specified public URL https://spatial-1020-gallery.pages.dev/?scene=living-day-on&mode=360. This is the existing deployed living-room daytime lights-on panorama, not a newly rendered output of the editor demonstration.
 
 Both captures use a 1600 by 1050 browser viewport. Only screenshots and documentation are published. The raw 1020.dwg/1020.skp, prepared model package, local case records and deployed asset bundle are not committed.
+
+## Authorized 1020 plan-review screenshot
+
+`studio-plan-1020-20261029.png` replaces the teaching DXF screenshot in README. It was captured from the current UI in a separate local copy of Project09, with a neutral demonstration title. The source unit is centimetres; the saved interpretation is complete but checks remain blocked and the candidate is not adopted. Only the screenshot is published, not the original DWG, source files, full candidate or case records. The original project is unchanged. Capture evidence remains in ignored artifacts/readme-plan-1020-20261029/. The older teaching DXF image is retained as historical documentation.
