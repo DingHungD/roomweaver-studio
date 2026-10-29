@@ -17,3 +17,10 @@ These images are intentional published documentation assets. Local capture scrip
 ## Authorized 1020 reference editor demonstration
 
 `studio-editor-reference-20261029.png` shows the real 02 editor at 1600 CSS pixels wide, using an isolated copy of the existing 1020.skp-derived prepared model and saved editing scene. The user explicitly authorized this screenshot demonstration. The isolated workspace uses an explicit reference-demo resume route to open the saved scene in 02; normal new GLB/SKP intake still opens the source-model website page. This is not evidence of a completed Project09 DWG interpretation, adoption or design review. The source model, scene snapshots, copy registration, provenance and capture scripts remain in ignored local artifacts/readme-editor-20261029/. Only the reviewed screenshot is published; no raw DWG/SKP, project registry, private source files or full case records are distributed.
+
+## 3D editor and deployed gallery captures
+
+- `studio-editor-3d-reference-20261029.png`: real 02 editor 3D view of the same authorized isolated 1020 reference scene. This is a WebGL preview, not a Cycles render or evidence of Project09 approval.
+- `studio-deployed-1020-20261029.png`: actual browser capture of the user-specified public URL https://spatial-1020-gallery.pages.dev/?scene=living-day-on&mode=360. This is the existing deployed living-room daytime lights-on panorama, not a newly rendered output of the editor demonstration.
+
+Both captures use a 1600 by 1050 browser viewport. Only screenshots and documentation are published. The raw 1020.dwg/1020.skp, prepared model package, local case records and deployed asset bundle are not committed.
